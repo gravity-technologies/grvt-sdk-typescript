@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "build/examples",
+    "rootDir": "examples",
+    "paths": {
+      "grvt": ["./dist/index.d.ts"]
+    }
+  },
+  "include": ["examples/quickstart.ts"]
+}

@@ -1,0 +1,48 @@
+{
+  "name": "grvt",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Grvt TypeScript SDK (preview): REST, WebSocket streams, WebSocket order entry, EIP-712 signing and login.",
+  "license": "MIT",
+  "files": [
+    "dist",
+    "README.md",
+    "RUNTIME_API.md"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsrs -p tsconfig.build.json",
+    "typecheck": "tsrs --noEmit -p tsconfig.json",
+    "lint": "oxlint --deny-warnings && oxfmt --check .",
+    "format": "oxfmt .",
+    "test": "vitest run --maxWorkers=100%",
+    "smoke": "GRVT_SMOKE=1 vitest run test/smoke.test.ts",
+    "example": "npm run build && npm run build:example && node build/examples/quickstart.js",
+    "bench": "NODE_OPTIONS=--expose-gc vitest bench --run --dir bench",
+    "build:example": "tsrs -p tsconfig.example.json"
+  },
+  "dependencies": {
+    "@noble/curves": "1.9.7",
+    "@noble/hashes": "1.8.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.18.0",
+    "oxfmt": "0.73.0",
+    "oxlint": "1.86.0",
+    "publint": "0.3.25",
+    "tsrs": "0.18.0-ts7.1.0-dev.20260929",
+    "vitest": "4.1.12"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

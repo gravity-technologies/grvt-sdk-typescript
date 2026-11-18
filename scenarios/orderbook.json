@@ -1,0 +1,1030 @@
+[
+  {
+    "name": "exact merge and deletes",
+    "mode": "delta",
+    "steps": [
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "0",
+          "prev_sequence_number": "0",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "9",
+                "size": "1",
+                "num_orders": 1
+              },
+              {
+                "price": "10",
+                "size": "2",
+                "num_orders": 1
+              },
+              {
+                "price": "2",
+                "size": "3",
+                "num_orders": 1
+              }
+            ],
+            "asks": [
+              {
+                "price": "11",
+                "size": "1",
+                "num_orders": 1
+              },
+              {
+                "price": "100",
+                "size": "2",
+                "num_orders": 1
+              }
+            ]
+          }
+        },
+        "bids": [
+          "10",
+          "9",
+          "2"
+        ],
+        "asks": [
+          "11",
+          "100"
+        ]
+      },
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "101",
+          "prev_sequence_number": "100",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "10.0",
+                "size": "4",
+                "num_orders": 1
+              },
+              {
+                "price": "9.00",
+                "size": "0",
+                "num_orders": 1
+              }
+            ],
+            "asks": [
+              {
+                "price": "11.0",
+                "size": "0",
+                "num_orders": 1
+              },
+              {
+                "price": "12",
+                "size": "2",
+                "num_orders": 1
+              }
+            ]
+          }
+        },
+        "bids": [
+          "10.0",
+          "2"
+        ],
+        "asks": [
+          "12",
+          "100"
+        ]
+      },
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "102",
+          "prev_sequence_number": "101",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "0.0000000000000000001",
+                "size": "1",
+                "num_orders": 1
+              }
+            ],
+            "asks": []
+          }
+        },
+        "bids": [
+          "10.0",
+          "2",
+          "0.0000000000000000001"
+        ],
+        "asks": [
+          "12",
+          "100"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "gap latches until explicit reset",
+    "mode": "delta",
+    "steps": [
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "0",
+          "prev_sequence_number": "0",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "9",
+                "size": "1",
+                "num_orders": 1
+              },
+              {
+                "price": "10",
+                "size": "2",
+                "num_orders": 1
+              },
+              {
+                "price": "2",
+                "size": "3",
+                "num_orders": 1
+              }
+            ],
+            "asks": [
+              {
+                "price": "11",
+                "size": "1",
+                "num_orders": 1
+              },
+              {
+                "price": "100",
+                "size": "2",
+                "num_orders": 1
+              }
+            ]
+          }
+        },
+        "bids": [
+          "10",
+          "9",
+          "2"
+        ],
+        "asks": [
+          "11",
+          "100"
+        ]
+      },
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "101",
+          "prev_sequence_number": "100",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [],
+            "asks": []
+          }
+        },
+        "bids": [
+          "10",
+          "9",
+          "2"
+        ],
+        "asks": [
+          "11",
+          "100"
+        ]
+      },
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "104",
+          "prev_sequence_number": "103",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [],
+            "asks": []
+          }
+        },
+        "error": "gap"
+      },
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "0",
+          "prev_sequence_number": "0",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "9",
+                "size": "1",
+                "num_orders": 1
+              },
+              {
+                "price": "10",
+                "size": "2",
+                "num_orders": 1
+              },
+              {
+                "price": "2",
+                "size": "3",
+                "num_orders": 1
+              }
+            ],
+            "asks": [
+              {
+                "price": "11",
+                "size": "1",
+                "num_orders": 1
+              },
+              {
+                "price": "100",
+                "size": "2",
+                "num_orders": 1
+              }
+            ]
+          }
+        },
+        "error": "reset_required"
+      },
+      {
+        "action": "reset",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "0",
+          "prev_sequence_number": "0",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "9",
+                "size": "1",
+                "num_orders": 1
+              },
+              {
+                "price": "10",
+                "size": "2",
+                "num_orders": 1
+              },
+              {
+                "price": "2",
+                "size": "3",
+                "num_orders": 1
+              }
+            ],
+            "asks": [
+              {
+                "price": "11",
+                "size": "1",
+                "num_orders": 1
+              },
+              {
+                "price": "100",
+                "size": "2",
+                "num_orders": 1
+              }
+            ]
+          }
+        },
+        "bids": [
+          "10",
+          "9",
+          "2"
+        ],
+        "asks": [
+          "11",
+          "100"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "external gap before any consumed snapshot",
+    "mode": "delta",
+    "steps": [
+      {
+        "action": "invalidate"
+      },
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "0",
+          "prev_sequence_number": "0",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "9",
+                "size": "1",
+                "num_orders": 1
+              },
+              {
+                "price": "10",
+                "size": "2",
+                "num_orders": 1
+              },
+              {
+                "price": "2",
+                "size": "3",
+                "num_orders": 1
+              }
+            ],
+            "asks": [
+              {
+                "price": "11",
+                "size": "1",
+                "num_orders": 1
+              },
+              {
+                "price": "100",
+                "size": "2",
+                "num_orders": 1
+              }
+            ]
+          }
+        },
+        "error": "reset_required"
+      },
+      {
+        "action": "reset",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "0",
+          "prev_sequence_number": "0",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "9",
+                "size": "1",
+                "num_orders": 1
+              },
+              {
+                "price": "10",
+                "size": "2",
+                "num_orders": 1
+              },
+              {
+                "price": "2",
+                "size": "3",
+                "num_orders": 1
+              }
+            ],
+            "asks": [
+              {
+                "price": "11",
+                "size": "1",
+                "num_orders": 1
+              },
+              {
+                "price": "100",
+                "size": "2",
+                "num_orders": 1
+              }
+            ]
+          }
+        },
+        "bids": [
+          "10",
+          "9",
+          "2"
+        ],
+        "asks": [
+          "11",
+          "100"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "snapshot channels replace rather than merge",
+    "mode": "snapshot",
+    "steps": [
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "10",
+          "prev_sequence_number": "0",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "9",
+                "size": "1",
+                "num_orders": 1
+              }
+            ],
+            "asks": []
+          }
+        },
+        "bids": [
+          "9"
+        ],
+        "asks": []
+      },
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "12",
+          "prev_sequence_number": "11",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "10",
+                "size": "2",
+                "num_orders": 1
+              }
+            ],
+            "asks": []
+          }
+        },
+        "bids": [
+          "10"
+        ],
+        "asks": []
+      },
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "11",
+          "prev_sequence_number": "10",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [],
+            "asks": []
+          }
+        },
+        "error": "out_of_order"
+      }
+    ]
+  },
+  {
+    "name": "delta needs snapshot",
+    "mode": "delta",
+    "steps": [
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "101",
+          "prev_sequence_number": "100",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [],
+            "asks": []
+          }
+        },
+        "error": "not_ready"
+      },
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "0",
+          "prev_sequence_number": "0",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "9",
+                "size": "1",
+                "num_orders": 1
+              },
+              {
+                "price": "10",
+                "size": "2",
+                "num_orders": 1
+              },
+              {
+                "price": "2",
+                "size": "3",
+                "num_orders": 1
+              }
+            ],
+            "asks": [
+              {
+                "price": "11",
+                "size": "1",
+                "num_orders": 1
+              },
+              {
+                "price": "100",
+                "size": "2",
+                "num_orders": 1
+              }
+            ]
+          }
+        },
+        "bids": [
+          "10",
+          "9",
+          "2"
+        ],
+        "asks": [
+          "11",
+          "100"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "invalid level invalidates book",
+    "mode": "delta",
+    "steps": [
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "0",
+          "prev_sequence_number": "0",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "9",
+                "size": "1",
+                "num_orders": 1
+              },
+              {
+                "price": "10",
+                "size": "2",
+                "num_orders": 1
+              },
+              {
+                "price": "2",
+                "size": "3",
+                "num_orders": 1
+              }
+            ],
+            "asks": [
+              {
+                "price": "11",
+                "size": "1",
+                "num_orders": 1
+              },
+              {
+                "price": "100",
+                "size": "2",
+                "num_orders": 1
+              }
+            ]
+          }
+        },
+        "bids": [
+          "10",
+          "9",
+          "2"
+        ],
+        "asks": [
+          "11",
+          "100"
+        ]
+      },
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "101",
+          "prev_sequence_number": "100",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "0",
+                "size": "1",
+                "num_orders": 1
+              }
+            ],
+            "asks": []
+          }
+        },
+        "error": "invalid_level"
+      },
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "0",
+          "prev_sequence_number": "0",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "9",
+                "size": "1",
+                "num_orders": 1
+              },
+              {
+                "price": "10",
+                "size": "2",
+                "num_orders": 1
+              },
+              {
+                "price": "2",
+                "size": "3",
+                "num_orders": 1
+              }
+            ],
+            "asks": [
+              {
+                "price": "11",
+                "size": "1",
+                "num_orders": 1
+              },
+              {
+                "price": "100",
+                "size": "2",
+                "num_orders": 1
+              }
+            ]
+          }
+        },
+        "error": "reset_required"
+      }
+    ]
+  },
+  {
+    "name": "wrong instrument",
+    "mode": "delta",
+    "steps": [
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "0",
+          "prev_sequence_number": "0",
+          "feed": {
+            "instrument": "Y",
+            "event_time": "1793172225200080949",
+            "bids": [],
+            "asks": []
+          }
+        },
+        "error": "wrong_stream"
+      }
+    ]
+  },
+  {
+    "name": "wrong selector",
+    "mode": "delta",
+    "steps": [
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "0",
+          "prev_sequence_number": "0",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "9",
+                "size": "1",
+                "num_orders": 1
+              },
+              {
+                "price": "10",
+                "size": "2",
+                "num_orders": 1
+              },
+              {
+                "price": "2",
+                "size": "3",
+                "num_orders": 1
+              }
+            ],
+            "asks": [
+              {
+                "price": "11",
+                "size": "1",
+                "num_orders": 1
+              },
+              {
+                "price": "100",
+                "size": "2",
+                "num_orders": 1
+              }
+            ]
+          }
+        },
+        "bids": [
+          "10",
+          "9",
+          "2"
+        ],
+        "asks": [
+          "11",
+          "100"
+        ]
+      },
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@200",
+          "sequence_number": "101",
+          "prev_sequence_number": "100",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [],
+            "asks": []
+          }
+        },
+        "error": "wrong_stream"
+      }
+    ]
+  },
+  {
+    "name": "reset requires snapshot",
+    "mode": "delta",
+    "steps": [
+      {
+        "action": "reset",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "101",
+          "prev_sequence_number": "100",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [],
+            "asks": []
+          }
+        },
+        "error": "snapshot_required"
+      }
+    ]
+  },
+  {
+    "name": "snapshot channels recover across gaps and reconnects",
+    "mode": "snapshot",
+    "steps": [
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "10",
+          "prev_sequence_number": "0",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "9",
+                "size": "1",
+                "num_orders": 1
+              }
+            ],
+            "asks": []
+          }
+        },
+        "bids": [
+          "9"
+        ],
+        "asks": []
+      },
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "12",
+          "prev_sequence_number": "11",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "10",
+                "size": "2",
+                "num_orders": 1
+              }
+            ],
+            "asks": []
+          }
+        },
+        "bids": [
+          "10"
+        ],
+        "asks": []
+      },
+      {
+        "action": "gap",
+        "reason": "sequence_mismatch"
+      },
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "0",
+          "prev_sequence_number": "0",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "9",
+                "size": "1",
+                "num_orders": 1
+              }
+            ],
+            "asks": []
+          }
+        },
+        "bids": [
+          "9"
+        ],
+        "asks": []
+      },
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "12",
+          "prev_sequence_number": "11",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "10",
+                "size": "2",
+                "num_orders": 1
+              }
+            ],
+            "asks": []
+          }
+        },
+        "bids": [
+          "10"
+        ],
+        "asks": []
+      },
+      {
+        "action": "gap",
+        "reason": "disconnect"
+      },
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "0",
+          "prev_sequence_number": "0",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "9",
+                "size": "1",
+                "num_orders": 1
+              }
+            ],
+            "asks": []
+          }
+        },
+        "bids": [
+          "9"
+        ],
+        "asks": []
+      },
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "12",
+          "prev_sequence_number": "11",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "10",
+                "size": "2",
+                "num_orders": 1
+              }
+            ],
+            "asks": []
+          }
+        },
+        "bids": [
+          "10"
+        ],
+        "asks": []
+      },
+      {
+        "action": "gap",
+        "reason": "overflow"
+      },
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "0",
+          "prev_sequence_number": "0",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "9",
+                "size": "1",
+                "num_orders": 1
+              }
+            ],
+            "asks": []
+          }
+        },
+        "bids": [
+          "9"
+        ],
+        "asks": []
+      },
+      {
+        "action": "apply",
+        "frame": {
+          "stream": "book.d",
+          "selector": "X@100",
+          "sequence_number": "12",
+          "prev_sequence_number": "11",
+          "feed": {
+            "instrument": "X",
+            "event_time": "1793172225200080949",
+            "bids": [
+              {
+                "price": "10",
+                "size": "2",
+                "num_orders": 1
+              }
+            ],
+            "asks": []
+          }
+        },
+        "bids": [
+          "10"
+        ],
+        "asks": []
+      }
+    ]
+  }
+]

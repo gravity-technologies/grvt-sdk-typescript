@@ -1,0 +1,102 @@
+{
+  "call_timeout": {
+    "value": 30000,
+    "unit": "ms",
+    "meaning": "Default bound on one whole call, including preparation and retries."
+  },
+  "http_attempt_timeout": {
+    "value": 10000,
+    "unit": "ms",
+    "meaning": "Default bound on one HTTP attempt, including login."
+  },
+  "ws_request_timeout": {
+    "value": 5000,
+    "unit": "ms",
+    "meaning": "Default wait for the reply to one WebSocket request."
+  },
+  "resync_timeout": {
+    "value": 5000,
+    "unit": "ms",
+    "meaning": "Default wait for a fresh snapshot after a gap re-subscribe before reconnecting."
+  },
+  "queue_size": {
+    "value": 4096,
+    "unit": "frames",
+    "meaning": "Default bound on each subscription's queue."
+  },
+  "read_attempts": {
+    "value": 3,
+    "unit": "count",
+    "meaning": "Tries in total for a read that keeps failing with a retryable error. Writes are sent once."
+  },
+  "read_backoff_base": {
+    "value": 100,
+    "unit": "ms",
+    "meaning": "Full-jitter backoff between read retries: wait uniform(0, min(cap, base * 2^attempt))."
+  },
+  "read_backoff_cap": {
+    "value": 2000,
+    "unit": "ms",
+    "meaning": "Largest wait between read retries."
+  },
+  "reconnect_backoff_base": {
+    "value": 250,
+    "unit": "ms",
+    "meaning": "Full-jitter backoff between WebSocket reconnects, same formula as reads."
+  },
+  "reconnect_backoff_cap": {
+    "value": 30000,
+    "unit": "ms",
+    "meaning": "Largest wait between WebSocket reconnects."
+  },
+  "session_renew_at": {
+    "value": 0.8,
+    "unit": "ratio",
+    "meaning": "Log in again once this share of the session cookie's lifetime has passed."
+  },
+  "session_default_lifetime": {
+    "value": 3600000,
+    "unit": "ms",
+    "meaning": "Session lifetime assumed when the cookie carries no expiry."
+  },
+  "session_retry_delay": {
+    "value": 5000,
+    "unit": "ms",
+    "meaning": "Wait before trying a failed session renewal again."
+  },
+  "client_order_id_seconds_bits": {
+    "value": 32,
+    "unit": "bits",
+    "meaning": "Generated client order IDs are 1<<63 | seconds<<counter_bits | counter; seconds is the Unix time masked to this many bits."
+  },
+  "client_order_id_counter_bits": {
+    "value": 31,
+    "unit": "bits",
+    "meaning": "Width of the per-process counter in the low bits of a generated client order ID."
+  },
+  "countdown_min_seconds": {
+    "value": 1,
+    "unit": "s",
+    "meaning": "Smallest countdown the cancel-on-disconnect helper accepts."
+  },
+  "countdown_max_seconds": {
+    "value": 300,
+    "unit": "s",
+    "meaning": "Largest countdown the cancel-on-disconnect helper accepts."
+  },
+  "rate_limit_code": {
+    "value": 1006,
+    "unit": "code",
+    "meaning": "The rate-limit error code. A read always retries on it."
+  },
+  "read_retry_statuses": {
+    "value": [502, 503, 504],
+    "unit": "http_status",
+    "meaning": "HTTP statuses a read retries on, whatever the error code. Codes the contract marks retryable retry too."
+  },
+  "write_rejected_statuses": {
+    "value": [400, 499],
+    "unit": "http_status_range",
+    "meaning": "Inclusive range. A write error is a definite rejection only if its HTTP status (when there is one) and its code's contract status are in it and the code is in the contract; otherwise the outcome is unknown."
+  }
+}

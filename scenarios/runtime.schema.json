@@ -1,0 +1,318 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Shared runtime scenarios (runtime.json), after \"$key\" references are replaced by behavior.json values",
+  "type": "array",
+  "minItems": 1,
+  "items": { "$ref": "#/$defs/scenario" },
+  "$defs": {
+    "count": { "type": "integer", "minimum": 0 },
+    "sequence": { "type": "integer", "minimum": 0 },
+    "uint64": { "type": "string", "pattern": "^[0-9]{1,20}$" },
+    "scenario": {
+      "type": "object",
+      "required": ["name", "call", "expect"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "call": { "$ref": "#/$defs/call" },
+        "replies": { "type": "array" },
+        "steps": { "type": "array", "minItems": 1 },
+        "expect": { "type": "object" },
+        "skip": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "enum": ["go", "python", "rust", "typescript"] },
+          "maxProperties": 3,
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "$ref": "#/$defs/isRestCall" },
+          "then": {
+            "required": ["replies"],
+            "properties": { "replies": { "items": { "$ref": "#/$defs/httpReply" } }, "steps": false, "expect": { "$ref": "#/$defs/callExpect" } }
+          }
+        },
+        {
+          "if": { "$ref": "#/$defs/isWsWrite" },
+          "then": {
+            "required": ["replies"],
+            "properties": { "replies": { "minItems": 1, "items": { "$ref": "#/$defs/wsReply" } }, "steps": false, "expect": { "$ref": "#/$defs/callExpect" } }
+          }
+        },
+        {
+          "if": { "$ref": "#/$defs/isStream" },
+          "then": {
+            "required": ["steps"],
+            "properties": { "steps": { "items": { "$ref": "#/$defs/step" } }, "replies": false, "expect": { "$ref": "#/$defs/streamExpect" } }
+          }
+        },
+        {
+          "if": { "$ref": "#/$defs/isPages" },
+          "then": {
+            "required": ["replies"],
+            "properties": { "replies": { "minItems": 1, "items": { "$ref": "#/$defs/pageReply" } }, "steps": false, "expect": { "$ref": "#/$defs/pagesExpect" } }
+          }
+        },
+        {
+          "if": { "properties": { "call": { "properties": { "kind": { "const": "backfill" } } } } },
+          "then": { "properties": { "expect": { "required": ["history_exhausted", "continuity"] } } },
+          "else": { "properties": { "expect": { "properties": { "history_exhausted": false, "continuity": false } } } }
+        },
+        {
+          "if": { "properties": { "call": { "properties": { "kind": { "const": "write" } } } } },
+          "else": { "properties": { "expect": { "properties": { "sent_client_order_id": false, "client_order_ids": false } } } }
+        },
+        {
+          "if": { "properties": { "call": { "properties": { "kind": { "const": "write" } }, "not": { "required": ["client_order_id"] } } } },
+          "then": {
+            "properties": {
+              "expect": { "required": ["sent_client_order_id"], "properties": { "sent_client_order_id": { "const": "generated" }, "client_order_ids": false } }
+            }
+          }
+        }
+      ]
+    },
+
+    "isRestCall": {
+      "properties": {
+        "call": {
+          "anyOf": [
+            { "properties": { "kind": { "enum": ["read", "countdown"] } } },
+            { "properties": { "kind": { "const": "write" } }, "not": { "required": ["transport"] } }
+          ]
+        }
+      }
+    },
+    "isWsWrite": { "properties": { "call": { "properties": { "kind": { "const": "write" } }, "required": ["transport"] } } },
+    "isStream": { "properties": { "call": { "properties": { "kind": { "const": "stream" } } } } },
+    "isPages": { "properties": { "call": { "properties": { "kind": { "enum": ["pages", "backfill"] } } } } },
+
+    "call": {
+      "type": "object",
+      "required": ["kind"],
+      "oneOf": [
+        {
+          "properties": { "kind": { "const": "read" } },
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "kind": { "const": "write" },
+            "transport": { "const": "ws" },
+            "client_order_id": { "$ref": "#/$defs/uint64" },
+            "ws_request_timeout_ms": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
+        },
+        {
+          "properties": { "kind": { "const": "countdown" }, "seconds": { "type": "number" } },
+          "required": ["seconds"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "kind": { "const": "stream" },
+            "stream": { "enum": ["v1.ticker.d", "v1.ticker.s", "v1.order"] },
+            "instruments": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+            "resync_timeout_ms": { "type": "integer", "minimum": 1 },
+            "queue_size": { "type": "integer", "minimum": 1 },
+            "cookie_max_age_s": { "type": "integer", "minimum": 1 }
+          },
+          "required": ["stream"],
+          "additionalProperties": false,
+          "if": { "properties": { "stream": { "const": "v1.order" } } },
+          "then": { "properties": { "instruments": false } },
+          "else": { "properties": { "cookie_max_age_s": false } }
+        },
+        {
+          "properties": { "kind": { "const": "pages" }, "take": { "type": "integer", "minimum": 1 } },
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "kind": { "const": "backfill" },
+            "gap": { "$ref": "#/$defs/gap" }
+          },
+          "required": ["gap"],
+          "additionalProperties": false
+        }
+      ]
+    },
+
+    "httpReply": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["status", "body"],
+          "properties": { "status": { "type": "integer", "minimum": 100, "maximum": 599 }, "body": { "type": "object" } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["status", "raw"],
+          "properties": { "status": { "type": "integer", "minimum": 100, "maximum": 599 }, "raw": { "type": "string" } },
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/refuse" },
+        { "$ref": "#/$defs/drop" }
+      ]
+    },
+    "wsReply": {
+      "oneOf": [
+        { "type": "object", "required": ["error"], "properties": { "error": true }, "additionalProperties": false },
+        { "$ref": "#/$defs/refuse" },
+        { "$ref": "#/$defs/drop" },
+        { "type": "object", "required": ["hang"], "properties": { "hang": { "const": true } }, "additionalProperties": false },
+        { "type": "object", "required": ["send_fails"], "properties": { "send_fails": { "const": true } }, "additionalProperties": false }
+      ]
+    },
+    "pageReply": {
+      "oneOf": [
+        { "type": "object", "required": ["next"], "properties": { "next": { "type": "string" } }, "additionalProperties": false },
+        { "type": "object", "required": ["fail"], "properties": { "fail": { "const": true } }, "additionalProperties": false }
+      ]
+    },
+    "refuse": { "type": "object", "required": ["refuse"], "properties": { "refuse": { "const": true } }, "additionalProperties": false },
+    "drop": { "type": "object", "required": ["drop"], "properties": { "drop": { "const": true } }, "additionalProperties": false },
+
+    "callExpect": {
+      "type": "object",
+      "required": ["outcome"],
+      "properties": {
+        "outcome": {
+          "enum": ["ok", "api_error", "rate_limited", "transport_error", "order_state_unknown", "decode_error", "validation_error"]
+        },
+        "attempts": { "$ref": "#/$defs/count" },
+        "retries": { "$ref": "#/$defs/count" },
+        "sent_client_order_id": { "anyOf": [{ "const": "generated" }, { "$ref": "#/$defs/uint64" }] },
+        "code": { "type": "integer" },
+        "status": { "type": ["integer", "null"] },
+        "retryable": { "type": "boolean" },
+        "sent": { "type": "boolean" },
+        "rpc": { "type": "string", "minLength": 1 },
+        "client_order_ids": { "type": "array", "items": { "$ref": "#/$defs/uint64" } }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "properties": { "outcome": { "const": "api_error" } } },
+          "then": { "required": ["code"] },
+          "else": { "properties": { "code": false, "retryable": false } }
+        },
+        {
+          "if": { "properties": { "outcome": { "enum": ["api_error", "rate_limited"] } } },
+          "else": { "properties": { "status": false } }
+        },
+        {
+          "if": { "properties": { "outcome": { "const": "transport_error" } } },
+          "else": { "properties": { "sent": false } }
+        },
+        {
+          "if": { "properties": { "outcome": { "const": "order_state_unknown" } } },
+          "else": { "properties": { "rpc": false, "client_order_ids": false } }
+        }
+      ]
+    },
+
+    "step": {
+      "type": "object",
+      "minProperties": 1,
+      "oneOf": [
+        {
+          "required": ["push"],
+          "properties": {
+            "push": { "type": "array", "prefixItems": [{ "$ref": "#/$defs/sequence" }, { "$ref": "#/$defs/sequence" }], "items": false, "minItems": 2 },
+            "feed": { "type": "object", "required": ["value"], "properties": { "value": true }, "additionalProperties": false }
+          },
+          "additionalProperties": false
+        },
+        { "required": ["drop"], "properties": { "drop": { "const": true } }, "additionalProperties": false },
+        { "required": ["ignore_subscribes"], "properties": { "ignore_subscribes": { "type": "integer", "minimum": 1 } }, "additionalProperties": false },
+        { "required": ["ack_latest"], "properties": { "ack_latest": { "type": "integer", "minimum": 1 } }, "additionalProperties": false },
+        { "required": ["wait_acks"], "properties": { "wait_acks": { "type": "integer", "minimum": 1 } }, "additionalProperties": false },
+        { "required": ["wait_reconnects"], "properties": { "wait_reconnects": { "type": "integer", "minimum": 1 } }, "additionalProperties": false },
+        { "required": ["wait_dropped"], "properties": { "wait_dropped": { "type": "integer", "minimum": 1 } }, "additionalProperties": false }
+      ]
+    },
+    "gap": {
+      "type": "object",
+      "required": ["reason", "after", "through"],
+      "properties": {
+        "reason": { "enum": ["sequence_mismatch", "disconnect", "overflow"] },
+        "after": { "anyOf": [{ "$ref": "#/$defs/sequence" }, { "type": "null" }] },
+        "through": { "anyOf": [{ "$ref": "#/$defs/sequence" }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    },
+    "streamExpect": {
+      "type": "object",
+      "required": ["items", "gaps", "subscribes"],
+      "properties": {
+        "items": { "$ref": "#/$defs/streamItems" },
+        "gaps": { "$ref": "#/$defs/streamGaps" },
+        "other_subscriptions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["items", "gaps"],
+            "properties": { "items": { "$ref": "#/$defs/streamItems" }, "gaps": { "$ref": "#/$defs/streamGaps" } },
+            "additionalProperties": false
+          }
+        },
+        "overflow_capacity": { "type": "integer", "minimum": 1 },
+        "subscribes": { "type": "integer", "minimum": 1 },
+        "unsubscribes": { "$ref": "#/$defs/count" },
+        "subscribe_request": { "type": "object", "minProperties": 1 },
+        "logins": { "type": "integer", "minimum": 1 },
+        "relogin_after_ms": { "type": "array", "items": { "type": "number", "minimum": 0 }, "minItems": 2, "maxItems": 2 },
+        "session_rotated": { "type": "array", "items": { "type": "integer", "minimum": 1 } },
+        "handshake_logins": { "type": "array", "minItems": 1, "items": { "type": "integer", "minimum": 1 } }
+      },
+      "additionalProperties": false,
+      "if": { "properties": { "items": { "contains": { "const": "stream_overflow" } } } },
+      "then": { "required": ["overflow_capacity"] },
+      "else": { "properties": { "overflow_capacity": false } }
+    },
+    "streamItems": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "anyOf": [{ "$ref": "#/$defs/sequence" }, { "enum": ["decode_error", "stream_overflow"] }] }
+    },
+    "streamGaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["reason", "after", "through"],
+        "properties": {
+          "reason": { "enum": ["sequence_mismatch", "disconnect", "overflow"] },
+          "after": { "anyOf": [{ "$ref": "#/$defs/sequence" }, { "type": "null" }] },
+          "through": { "anyOf": [{ "$ref": "#/$defs/sequence" }, { "type": "null" }] },
+          "frame": { "type": "array", "items": { "$ref": "#/$defs/sequence" }, "minItems": 2, "maxItems": 2 }
+        },
+        "additionalProperties": false,
+        "if": { "properties": { "reason": { "const": "sequence_mismatch" } } },
+        "else": { "properties": { "frame": false } }
+      }
+    },
+
+    "pagesExpect": {
+      "type": "object",
+      "required": ["outcome", "pages", "cursors"],
+      "properties": {
+        "outcome": { "enum": ["ok", "pagination_cycle", "fetch_error"] },
+        "cursor": { "type": "string" },
+        "pages": { "$ref": "#/$defs/count" },
+        "cursors": { "type": "array", "minItems": 1, "items": { "type": ["string", "null"] } },
+        "history_exhausted": { "type": "array", "items": { "type": "boolean" } },
+        "continuity": { "const": "unproven" }
+      },
+      "additionalProperties": false,
+      "if": { "properties": { "outcome": { "const": "pagination_cycle" } } },
+      "then": { "required": ["cursor"] },
+      "else": { "properties": { "cursor": false } }
+    }
+  }
+}
