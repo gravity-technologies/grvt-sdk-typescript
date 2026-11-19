@@ -277,8 +277,8 @@ buffer per struct, type hashes computed by the generator); the domain separator 
 - `PrivateKeySigner`: the runtime hashes with the generated encoder and signs the digest directly.
 - Any other `Signer` (wallet, KMS, HSM) gets `signTyped(domain, type, message)` and may hand
   `type.toTypedData(domain, message)` to eth_signTypedData_v4. The runtime then checks the returned
-  r/s/v against the generated digest and throws `SigningError` if it fails the checks listed under
-  **Signing** in [README.md](README.md#how-the-main-pieces-behave) (low-s, recovers to `signer.address`,
+  r/s/v against the generated digest and throws `SigningError` if it fails the checks listed in
+  [Sign with a wallet or KMS](https://developers.grvt.io/sdks/typescript#sign-with-a-wallet-or-kms) (low-s, recovers to `signer.address`,
   signer field empty or equal to it). A KMS signer normalizes a high s as s = n - s, flip v.
 
 ## HTTP redirects and retries
