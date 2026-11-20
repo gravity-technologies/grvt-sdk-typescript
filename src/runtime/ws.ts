@@ -10,6 +10,10 @@
 // - the read path only parses and routes; it never waits for a consumer: each subscription has a
 //   bounded queue of raw frames, and the consumer decodes each one, so a frame that does not decode
 //   is a DecodeError in its place in the stream
+// - drops and reconnects a connection with no frame of any kind (data, ping or pong) for
+//   idleTimeoutMs. A WHATWG WebSocket can neither send pings nor show the server's, so the check only
+//   starts once the socket has reported one through `onheartbeat`; until then a quiet connection
+//   can't be told from a dead one
 //
 // Browsers cannot set headers on a WebSocket handshake, so an authenticated socket needs Node
 // (whose global WebSocket accepts `{ headers }`). Public market data works everywhere.
@@ -33,11 +37,9 @@ import type { LiteCodec } from "./lite.js";
 import { debugEnabled, logDebug, logWarn, redact } from "./log.js";
 import { Backoff, jsonrpcFrame, RequestTable, seqOf, Sequencer } from "./protocol.js";
 import type { StreamSpec } from "./spec.js";
+import * as behavior from "../generated/behavior.js";
 
-export const CONNECT_TIMEOUT_MS = 10_000;
-/** A connection that stayed up this long resets the reconnect backoff. */
-const STABLE_AFTER_MS = 10_000;
-const WATCHDOG_MS = 500;
+export const CONNECT_TIMEOUT_MS = behavior.WS_CONNECT_TIMEOUT_MS;
 
 /** The part of the WHATWG WebSocket the socket uses. */
 export interface WebSocketLike {
@@ -50,6 +52,12 @@ export interface WebSocketLike {
   /** `status` is non-standard: a factory that knows the handshake's HTTP status may set it. */
   onclose: ((ev: { code?: number; reason?: string; status?: number }) => void) | null;
   onerror: ((ev: any) => void) | null;
+  /**
+   * Non-standard: set by the SDK. A socket that can see ping and pong frames calls it for each one it
+   * receives, which turns on the idle check (`idleTimeoutMs`). The default factory does this on Node
+   * versions whose WebSocket reports them (Node 24 and later).
+   */
+  onheartbeat?: (() => void) | null;
 }
 
 export type WebSocketFactory = (url: string, headers: Record<string, string>) => WebSocketLike;
@@ -63,6 +71,7 @@ export const defaultWebSocketFactory: WebSocketFactory = (url, headers) => {
   const WS = (globalThis as { WebSocket?: new (url: string, opts?: unknown) => WebSocketLike })
     .WebSocket;
   if (!WS) throw new ConfigError("no global WebSocket: use Node >= 22 or pass `webSocket`");
+  watchHeartbeats();
   if (Object.keys(headers).length === 0) return new WS(url);
   if (!isNode())
     throw new ConfigError(
@@ -71,9 +80,31 @@ export const defaultWebSocketFactory: WebSocketFactory = (url, headers) => {
   return new WS(url, { headers });
 };
 
+let heartbeatsWatched = false;
+
+/**
+ * Node's WebSocket (undici) answers pings itself and hides them, but publishes each ping and pong on a
+ * diagnostics channel, naming the socket (Node 24 and later, the SDK's minimum). Browsers have no such channel,
+ * so there a socket never calls onheartbeat.
+ */
+function watchHeartbeats(): void {
+  if (heartbeatsWatched) return;
+  heartbeatsWatched = true;
+  type Channels = {
+    subscribe(name: string, fn: (msg: unknown) => void): void;
+  };
+  const proc = (globalThis as { process?: { getBuiltinModule?: (id: string) => unknown } }).process;
+  const dc = proc?.getBuiltinModule?.("node:diagnostics_channel") as Channels | undefined;
+  const seen = (msg: unknown) =>
+    (msg as { websocket?: WebSocketLike } | undefined)?.websocket?.onheartbeat?.();
+  dc?.subscribe("undici:websocket:ping", seen);
+  dc?.subscribe("undici:websocket:pong", seen);
+}
+
 export interface WsOptions {
   requestTimeoutMs: number;
   resyncTimeoutMs: number;
+  idleTimeoutMs: number;
   maxFrameBytes?: number;
   factory: WebSocketFactory;
   /** Set for encoding "lite": loads the lite names before the first connect. */
@@ -205,7 +236,7 @@ export class WsSocket {
   ) {}
 
   newSub(spec: StreamSpec, selector: string, capacity: number): Sub {
-    return new Sub(this.nextSubId++, spec, selector, Math.max(1, capacity));
+    return new Sub(this.nextSubId++, spec, selector, capacity);
   }
 
   /** Drop the connection and reconnect (subscriptions re-sync from snapshots). */
@@ -497,7 +528,7 @@ export class WsSocket {
 
       const upSince = Date.now();
       const { code, reason } = await this.run(ws);
-      if (Date.now() - upSince > STABLE_AFTER_MS) backoff.reset();
+      if (Date.now() - upSince > behavior.RECONNECT_BACKOFF_RESET_AFTER_MS) backoff.reset();
 
       this.ws = undefined;
       this.epoch = undefined;
@@ -527,17 +558,23 @@ export class WsSocket {
   private run(ws: WebSocketLike): Promise<{ code?: number; reason: string }> {
     return new Promise((resolve) => {
       let done = false;
+      // The idle check starts with the first heartbeat: before that, silence proves nothing.
+      let lastRx = Date.now();
+      let heartbeats = false;
       const tick = unref(
         setInterval(() => {
-          const why = this.watchdog();
+          const idle = this.opts.idleTimeoutMs;
+          const why =
+            this.watchdog() ??
+            (heartbeats && Date.now() - lastRx > idle ? `no frames for ${idle}ms` : undefined);
           if (why) end(why);
-        }, WATCHDOG_MS),
+        }, behavior.WATCHDOG_INTERVAL_MS),
       );
       const finish = (code: number | undefined, reason: string) => {
         if (done) return;
         done = true;
         clearInterval(tick);
-        ws.onmessage = ws.onclose = ws.onerror = null;
+        ws.onmessage = ws.onclose = ws.onerror = ws.onheartbeat = null;
         if (this.endConn === end) this.endConn = undefined;
         resolve({ code, reason });
       };
@@ -550,10 +587,16 @@ export class WsSocket {
         finish(undefined, reason);
       };
       this.endConn = end;
-      ws.onmessage = (ev) =>
+      ws.onheartbeat = () => {
+        heartbeats = true;
+        lastRx = Date.now();
+      };
+      ws.onmessage = (ev) => {
+        lastRx = Date.now();
         this.onFrame(
           typeof ev.data === "string" ? ev.data : new TextDecoder().decode(ev.data as ArrayBuffer),
         );
+      };
       ws.onerror = () => {};
       ws.onclose = (ev) =>
         finish(ev.code, ev.code === 1008 ? "slow consumer (server 1008)" : "closed by server");
@@ -852,12 +895,9 @@ export class Subscription<F> implements AsyncIterableIterator<F> {
           if (!sub.spec.decode) return { value: frame as F, done: false };
           return { value: sub.spec.decode(frame) as F, done: false };
         } catch (e) {
-          throw new DecodeError(
-            `${sub.spec.stream}: cannot decode frame: ${(e as Error).message}`,
-            {
-              cause: e,
-            },
-          );
+          throw new DecodeError(sub.spec.stream, `cannot decode frame: ${(e as Error).message}`, {
+            cause: e,
+          });
         }
       }
       if (sub.closed) return { value: undefined, done: true };

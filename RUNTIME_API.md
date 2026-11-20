@@ -4,7 +4,7 @@ Generated code in `src/generated/` talks to the hand-written runtime (`src/runti
 the names on this page, all exported from `src/runtime/index.ts`. If the generator needs something
 not listed here, add it to the runtime and to this page; never reach into private fields.
 
-The generator is `sdk/generator/typescript` (`go run ./sdk/generator typescript`, or `make sdk-gen` for everything). Its
+The generator is `sdk/generator/typescript` (`make sdk-gen-typescript`, or `make sdk-gen-code` for every SDK and the docs). Its
 output in `src/generated/` (not committed) is the reference for everything below. Naming and write rules shared
 with the other generators live in `sdk/generator/naming`.
 
@@ -69,7 +69,8 @@ request (the caller's object is never changed) -> fill `client_order_id` -> `bef
 `sign(rt, request)` -> `JSON.stringify` -> log in if `auth` -> REST or WS -> `JSON.parse`. For REST
 the whole body is the response; over WS the JSON-RPC `result` is the same object. Errors are thrown:
 `ApiError` (`RateLimitError` for 1006), `TransportError`, `OrderStateUnknown`, `SigningError`,
-`OrderOutOfBounds`, `ConfigError`, `DecodeError`, `FrameTooLarge`, `ClosedError`.
+`OrderOutOfBounds`, `ConfigError`, `DecodeError`, `FrameTooLarge`, `ClosedError`. An unknown outcome reports
+the `client_order_id`s filled before the hook. `beforeSend` may change the request but must not add, remove or reorder orders, or change their client order IDs (prices, sizes and other fields may change): if it does, the call throws `ConfigError` and sends nothing.
 
 ## 3. Streams (one `StreamSpec` constant + one method)
 
@@ -82,12 +83,12 @@ export const STREAM_ORDERBOOK_ORDERBOOK_DELTA: StreamSpec = {
   secondary: [{ name: "rate", required: false }, { name: "depth", required: false }],
 };
 
-orderbookDeltaStream(selector: { instrument: string; rate?: number; depth?: number }, options?: StreamOptions): Subscription<m.WSOrderbookLevelsFeedDataV1> {
-  return this.runtime.stream(specs.STREAM_ORDERBOOK_ORDERBOOK_DELTA, selector, options);
+orderbookDeltaStream(selector: { instrument: string; rate?: number; depth?: number }): Subscription<m.WSOrderbookLevelsFeedDataV1> {
+  return this.runtime.stream(specs.STREAM_ORDERBOOK_ORDERBOOK_DELTA, selector);
 }
 ```
 
-`Runtime.stream(spec, selector, options?)` checks required selector fields (throws `ConfigError` at
+`Runtime.stream(spec, selector)` checks required selector fields (throws `ConfigError` at
 once), builds the selector `p1-p2@s1-s2` from the fields that are set, and returns a
 `Subscription<F>`. Nothing is sent until it is iterated or `subscribe()` is awaited. `F` is the whole
 frame (`stream`, `selector`, `sequence_number`, `prev_sequence_number`, `feed`). Conflation is on
@@ -214,7 +215,7 @@ export class Grvt extends Api { // every RPC and stream is a Grvt method: client
 `ClientOptions`: `env`, `apiKey`, `signer`, `orderTransport` (`"rest"` | `"ws"`), `encoding` (`"lite"` (default) |
 `"full"`, see [Lite encoding](#lite-encoding)), `checkOrders`, `clock`,
 `nonces`, `clientOrderIds`, `http` (HTTP plug-in), `webSocket` (WebSocket factory), `beforeSend`, `onEvent`,
-`httpAttemptTimeoutMs`, `callTimeoutMs`, `wsRequestTimeoutMs`, `queueSize`, `resyncTimeoutMs`.
+`httpAttemptTimeoutMs`, `callTimeoutMs`, `wsRequestTimeoutMs`, `queueSize`, `resyncTimeoutMs`, `idleTimeoutMs`.
 
 `CallOptions.timeoutMs` bounds the complete call, including hooks, signing, metadata, authentication, retries and the response;
 it overrides the client's `callTimeoutMs`. `httpAttemptTimeoutMs` caps each HTTP attempt and `wsRequestTimeoutMs` a WebSocket reply
@@ -222,7 +223,7 @@ or subscription acknowledgement. Defaults come from `src/generated/behavior.ts` 
 
 Pass an `AbortSignal` as `CallOptions.signal` for native cancellation.
 Before dispatch, cancellation throws the signal's reason and a deadline throws a `TimeoutError` DOMException.
-After a write starts, cancellation or a deadline throws `OrderStateUnknown` with the final submitted IDs and the original cause.
+After a write starts, cancellation or a deadline throws `OrderStateUnknown` with the client order IDs and the original cause.
 Shared metadata and login work can finish for other callers after one caller stops waiting.
 Closing the client aborts its owned network work.
 Synchronous hooks and noncooperative plug-ins cannot be interrupted, but the runtime checks the absolute deadline again before dispatch.
@@ -283,7 +284,5 @@ buffer per struct, type hashes computed by the generator); the domain separator 
 
 ## HTTP redirects and retries
 
-The SDK does not follow HTTP redirects for API requests.
-A redirect on a write returns an uncertain outcome instead of sending the signed request to another endpoint.
-The default transports also avoid retries after an uncertain write failure.
-Custom HTTP transports must preserve these rules.
+The SDK never follows a redirect or retries a write, and a custom HTTP transport must not either: the rule and
+why are in [What the SDK retries](https://developers.grvt.io/guides/errors-and-retries#what-the-sdk-retries).

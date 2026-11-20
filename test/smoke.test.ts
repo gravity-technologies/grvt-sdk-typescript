@@ -9,8 +9,10 @@ import { type Event, Grvt, type models as m, specs } from "../src/index.js";
 
 it.skipIf(process.env.GRVT_SMOKE !== "1")("testnet market data", { timeout: 60_000 }, async () => {
   const events: Event["type"][] = [];
+  // Full, because the raw WS request below sends full field names; lite is the default (and the next test).
   const client = new Grvt({
     env: "testnet",
+    encoding: "full",
     onEvent: (e) => e.type !== "frame" && events.push(e.type),
   });
   try {

@@ -1,7 +1,8 @@
 // User hooks.
 //
 // - beforeSend(call) runs before signing for every RPC (REST or WS). It may edit call.params in place
-//   or return a new params object. It runs before signing, so nothing can change a signed request.
+//   or return a new params object, but must not add, remove or reorder orders, or change their client order IDs (that throws
+//   ConfigError and sends nothing). It runs before signing, so nothing can change a signed request.
 // - onEvent(event) is a read-only listener for connection, stream and retry events. It runs on the
 //   socket's read path: keep it fast. An exception in it is logged and ignored.
 //

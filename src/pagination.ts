@@ -1,5 +1,7 @@
+import { GrvtError } from "./runtime/errors.js";
+
 /** The server returned a cursor already used in this traversal. */
-export class PaginationCycle extends Error {
+export class PaginationCycle extends GrvtError {
   constructor(readonly cursor: string) {
     super(`pagination cursor repeated: ${JSON.stringify(cursor)}`);
     this.name = "PaginationCycle";

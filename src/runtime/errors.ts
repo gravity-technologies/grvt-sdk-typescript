@@ -207,9 +207,16 @@ export class FrameTooLarge extends GrvtError {
   }
 }
 
-/** A response or stream frame did not decode. */
+/** A response or stream frame did not decode. `rpc` is the method or stream. */
 export class DecodeError extends GrvtError {
   override name = "DecodeError";
+  constructor(
+    readonly rpc: string,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(`${rpc}: ${message}`, options);
+  }
 }
 
 /** The client is missing something the call needs (signer, api key) or was given a bad option. */

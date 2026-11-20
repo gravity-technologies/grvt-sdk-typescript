@@ -20,7 +20,8 @@
     }
   },
   "scripts": {
-    "build": "rm -rf dist && tsrs -p tsconfig.build.json",
+    "prepare": "npm run build",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsrs -p tsconfig.build.json",
     "typecheck": "tsrs --noEmit -p tsconfig.json",
     "lint": "oxlint --deny-warnings && oxfmt --check .",
     "format": "oxfmt .",
@@ -35,7 +36,7 @@
     "@noble/hashes": "1.8.0"
   },
   "devDependencies": {
-    "@types/node": "22.18.0",
+    "@types/node": "24.0.15",
     "oxfmt": "0.73.0",
     "oxlint": "1.86.0",
     "publint": "0.3.25",
@@ -43,6 +44,6 @@
     "vitest": "4.1.12"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   }
 }

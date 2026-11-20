@@ -45,7 +45,6 @@ export {
   type Req,
   Runtime,
   type SignFn,
-  type StreamOptions,
   type Tables,
 } from "./runtime.js";
 export {

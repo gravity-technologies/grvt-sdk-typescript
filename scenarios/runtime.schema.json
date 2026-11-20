@@ -102,9 +102,16 @@
             "kind": { "const": "write" },
             "transport": { "const": "ws" },
             "client_order_id": { "$ref": "#/$defs/uint64" },
-            "ws_request_timeout_ms": { "type": "integer", "minimum": 1 }
+            "ws_request_timeout_ms": { "type": "integer", "minimum": 1 },
+            "bulk": { "const": true },
+            "api_key": { "const": false },
+            "off_tick": { "const": true }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "allOf": [
+            { "if": { "required": ["bulk"] }, "then": { "properties": { "client_order_id": false } } },
+            { "if": { "anyOf": [{ "required": ["api_key"] }, { "required": ["off_tick"] }] }, "then": { "required": ["client_order_id"], "properties": { "bulk": false, "transport": false } } }
+          ]
         },
         {
           "properties": { "kind": { "const": "countdown" }, "seconds": { "type": "number" } },
@@ -117,6 +124,7 @@
             "stream": { "enum": ["v1.ticker.d", "v1.ticker.s", "v1.order"] },
             "instruments": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
             "resync_timeout_ms": { "type": "integer", "minimum": 1 },
+            "idle_timeout_ms": { "type": "integer", "minimum": 1 },
             "queue_size": { "type": "integer", "minimum": 1 },
             "cookie_max_age_s": { "type": "integer", "minimum": 1 }
           },
@@ -182,7 +190,17 @@
       "required": ["outcome"],
       "properties": {
         "outcome": {
-          "enum": ["ok", "api_error", "rate_limited", "transport_error", "order_state_unknown", "decode_error", "validation_error"]
+          "enum": [
+            "ok",
+            "api_error",
+            "rate_limited",
+            "transport_error",
+            "order_state_unknown",
+            "decode_error",
+            "validation_error",
+            "config_error",
+            "order_out_of_bounds"
+          ]
         },
         "attempts": { "$ref": "#/$defs/count" },
         "retries": { "$ref": "#/$defs/count" },
@@ -192,7 +210,20 @@
         "retryable": { "type": "boolean" },
         "sent": { "type": "boolean" },
         "rpc": { "type": "string", "minLength": 1 },
-        "client_order_ids": { "type": "array", "items": { "$ref": "#/$defs/uint64" } }
+        "client_order_ids": { "type": "array", "items": { "$ref": "#/$defs/uint64" } },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind"],
+            "properties": {
+              "kind": { "type": "string", "minLength": 1 },
+              "rpc": { "type": "string", "minLength": 1 },
+              "attempt": { "type": "integer", "minimum": 1 }
+            },
+            "additionalProperties": false
+          }
+        }
       },
       "additionalProperties": false,
       "allOf": [
@@ -229,6 +260,8 @@
           "additionalProperties": false
         },
         { "required": ["drop"], "properties": { "drop": { "const": true } }, "additionalProperties": false },
+        { "required": ["silence"], "properties": { "silence": { "const": true } }, "additionalProperties": false },
+        { "required": ["sleep_ms"], "properties": { "sleep_ms": { "type": "integer", "minimum": 1 } }, "additionalProperties": false },
         { "required": ["ignore_subscribes"], "properties": { "ignore_subscribes": { "type": "integer", "minimum": 1 } }, "additionalProperties": false },
         { "required": ["ack_latest"], "properties": { "ack_latest": { "type": "integer", "minimum": 1 } }, "additionalProperties": false },
         { "required": ["wait_acks"], "properties": { "wait_acks": { "type": "integer", "minimum": 1 } }, "additionalProperties": false },

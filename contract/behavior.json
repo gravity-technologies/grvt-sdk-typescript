@@ -1,102 +1,342 @@
 {
-  "call_timeout": {
-    "value": 30000,
-    "unit": "ms",
-    "meaning": "Default bound on one whole call, including preparation and retries."
+  "constants": {
+    "call_timeout": {
+      "value": 30000,
+      "unit": "ms",
+      "meaning": "Default bound on one whole call, including preparation and retries."
+    },
+    "http_attempt_timeout": {
+      "value": 10000,
+      "unit": "ms",
+      "meaning": "Default bound on one HTTP attempt, including login."
+    },
+    "ws_request_timeout": {
+      "value": 5000,
+      "unit": "ms",
+      "meaning": "Default wait for the reply to one WebSocket request."
+    },
+    "ws_connect_timeout": {
+      "value": 10000,
+      "unit": "ms",
+      "meaning": "Bound on one WebSocket connect, login and handshake included; also how long a request waits for a connection."
+    },
+    "ws_idle_timeout": {
+      "value": 30000,
+      "unit": "ms",
+      "meaning": "No frame of any kind (data, ping or pong) for this long means the connection is dead: drop it and reconnect. The client pings every third of it, so a quiet but healthy connection always has pongs."
+    },
+    "ws_max_incoming_frame": {
+      "value": 67108864,
+      "unit": "bytes",
+      "meaning": "Largest WebSocket frame the client accepts (64 MiB); a larger one closes the connection."
+    },
+    "resync_timeout": {
+      "value": 5000,
+      "unit": "ms",
+      "meaning": "Default wait for a fresh snapshot after a gap re-subscribe before reconnecting."
+    },
+    "watchdog_interval": {
+      "value": 500,
+      "unit": "ms",
+      "meaning": "How often each WebSocket checks for an overdue resync, a rotated session and an idle connection, and sends its ping."
+    },
+    "queue_size": {
+      "value": 4096,
+      "unit": "frames",
+      "meaning": "Default bound on each subscription's queue."
+    },
+    "read_attempts": {
+      "value": 3,
+      "unit": "count",
+      "meaning": "Tries in total for a read that keeps failing with a retryable error. Writes are sent once."
+    },
+    "read_backoff_base": {
+      "value": 100,
+      "unit": "ms",
+      "meaning": "Full-jitter backoff between read retries: wait uniform(0, min(cap, base * 2^attempt))."
+    },
+    "read_backoff_cap": {
+      "value": 2000,
+      "unit": "ms",
+      "meaning": "Largest wait between read retries."
+    },
+    "reconnect_backoff_base": {
+      "value": 250,
+      "unit": "ms",
+      "meaning": "Full-jitter backoff between WebSocket reconnects, same formula as reads."
+    },
+    "reconnect_backoff_cap": {
+      "value": 30000,
+      "unit": "ms",
+      "meaning": "Largest wait between WebSocket reconnects."
+    },
+    "reconnect_backoff_reset_after": {
+      "value": 10000,
+      "unit": "ms",
+      "meaning": "A connection that stayed up this long resets the reconnect backoff."
+    },
+    "session_renew_at": {
+      "value": 0.8,
+      "unit": "ratio",
+      "meaning": "Log in again once this share of the session cookie's lifetime has passed."
+    },
+    "session_default_lifetime": {
+      "value": 3600000,
+      "unit": "ms",
+      "meaning": "Session lifetime assumed when the cookie carries no expiry."
+    },
+    "session_retry_delay": {
+      "value": 5000,
+      "unit": "ms",
+      "meaning": "Wait before trying a failed session renewal again."
+    },
+    "session_renew_min_wait": {
+      "value": 1000,
+      "unit": "ms",
+      "meaning": "Shortest wait before a session renewal, so a cookie that is already due does not log in again in a tight loop."
+    },
+    "client_order_id_seconds_bits": {
+      "value": 32,
+      "unit": "bits",
+      "meaning": "Generated client order IDs are 1<<63 | seconds<<counter_bits | counter; seconds is the Unix time masked to this many bits."
+    },
+    "client_order_id_counter_bits": {
+      "value": 31,
+      "unit": "bits",
+      "meaning": "Width of the per-process counter in the low bits of a generated client order ID."
+    },
+    "countdown_min_seconds": {
+      "value": 1,
+      "unit": "s",
+      "meaning": "Smallest countdown the cancel-on-disconnect helper accepts."
+    },
+    "countdown_max_seconds": {
+      "value": 300,
+      "unit": "s",
+      "meaning": "Largest countdown the cancel-on-disconnect helper accepts."
+    },
+    "rate_limit_code": {
+      "value": 1006,
+      "unit": "code",
+      "meaning": "The rate-limit error code. A read always retries on it."
+    },
+    "read_retry_statuses": {
+      "value": [502, 503, 504],
+      "unit": "http_status",
+      "meaning": "HTTP statuses a read retries on, whatever the error code. Codes the contract marks retryable retry too."
+    },
+    "write_rejected_statuses": {
+      "value": [400, 499],
+      "unit": "http_status_range",
+      "meaning": "Inclusive range. A write error is a definite rejection only if its HTTP status (when there is one) and its code's contract status are in it and the code is in the contract; otherwise the outcome is unknown."
+    }
   },
-  "http_attempt_timeout": {
-    "value": 10000,
-    "unit": "ms",
-    "meaning": "Default bound on one HTTP attempt, including login."
-  },
-  "ws_request_timeout": {
-    "value": 5000,
-    "unit": "ms",
-    "meaning": "Default wait for the reply to one WebSocket request."
-  },
-  "resync_timeout": {
-    "value": 5000,
-    "unit": "ms",
-    "meaning": "Default wait for a fresh snapshot after a gap re-subscribe before reconnecting."
-  },
-  "queue_size": {
-    "value": 4096,
-    "unit": "frames",
-    "meaning": "Default bound on each subscription's queue."
-  },
-  "read_attempts": {
-    "value": 3,
-    "unit": "count",
-    "meaning": "Tries in total for a read that keeps failing with a retryable error. Writes are sent once."
-  },
-  "read_backoff_base": {
-    "value": 100,
-    "unit": "ms",
-    "meaning": "Full-jitter backoff between read retries: wait uniform(0, min(cap, base * 2^attempt))."
-  },
-  "read_backoff_cap": {
-    "value": 2000,
-    "unit": "ms",
-    "meaning": "Largest wait between read retries."
-  },
-  "reconnect_backoff_base": {
-    "value": 250,
-    "unit": "ms",
-    "meaning": "Full-jitter backoff between WebSocket reconnects, same formula as reads."
-  },
-  "reconnect_backoff_cap": {
-    "value": 30000,
-    "unit": "ms",
-    "meaning": "Largest wait between WebSocket reconnects."
-  },
-  "session_renew_at": {
-    "value": 0.8,
-    "unit": "ratio",
-    "meaning": "Log in again once this share of the session cookie's lifetime has passed."
-  },
-  "session_default_lifetime": {
-    "value": 3600000,
-    "unit": "ms",
-    "meaning": "Session lifetime assumed when the cookie carries no expiry."
-  },
-  "session_retry_delay": {
-    "value": 5000,
-    "unit": "ms",
-    "meaning": "Wait before trying a failed session renewal again."
-  },
-  "client_order_id_seconds_bits": {
-    "value": 32,
-    "unit": "bits",
-    "meaning": "Generated client order IDs are 1<<63 | seconds<<counter_bits | counter; seconds is the Unix time masked to this many bits."
-  },
-  "client_order_id_counter_bits": {
-    "value": 31,
-    "unit": "bits",
-    "meaning": "Width of the per-process counter in the low bits of a generated client order ID."
-  },
-  "countdown_min_seconds": {
-    "value": 1,
-    "unit": "s",
-    "meaning": "Smallest countdown the cancel-on-disconnect helper accepts."
-  },
-  "countdown_max_seconds": {
-    "value": 300,
-    "unit": "s",
-    "meaning": "Largest countdown the cancel-on-disconnect helper accepts."
-  },
-  "rate_limit_code": {
-    "value": 1006,
-    "unit": "code",
-    "meaning": "The rate-limit error code. A read always retries on it."
-  },
-  "read_retry_statuses": {
-    "value": [502, 503, 504],
-    "unit": "http_status",
-    "meaning": "HTTP statuses a read retries on, whatever the error code. Codes the contract marks retryable retry too."
-  },
-  "write_rejected_statuses": {
-    "value": [400, 499],
-    "unit": "http_status_range",
-    "meaning": "Inclusive range. A write error is a definite rejection only if its HTTP status (when there is one) and its code's contract status are in it and the code is in the contract; otherwise the outcome is unknown."
-  }
+  "options": [
+    {
+      "name": "call_timeout",
+      "default": "call_timeout",
+      "meaning": "Bound on one whole call.",
+      "extras": {
+        "go": "0 means the default, since a Config field starts at 0; a negative value is a ConfigError."
+      }
+    },
+    {
+      "name": "http_attempt_timeout",
+      "default": "http_attempt_timeout",
+      "meaning": "Bound on one HTTP attempt.",
+      "extras": {
+        "go": "0 means the default, since a Config field starts at 0; a negative value is a ConfigError."
+      }
+    },
+    {
+      "name": "ws_request_timeout",
+      "default": "ws_request_timeout",
+      "meaning": "Wait for the reply to one WebSocket request.",
+      "extras": {
+        "go": "0 means the default, since a Config field starts at 0; a negative value is a ConfigError."
+      }
+    },
+    {
+      "name": "resync_timeout",
+      "default": "resync_timeout",
+      "meaning": "Wait for a fresh snapshot after a gap re-subscribe.",
+      "extras": {
+        "go": "0 means the default, since a Config field starts at 0; a negative value is a ConfigError."
+      }
+    },
+    {
+      "name": "idle_timeout",
+      "default": "ws_idle_timeout",
+      "meaning": "Silence after which a WebSocket connection is dropped. An advanced setting: keep it well above the server's 5 s ping interval, since the TypeScript SDK can't ping and relies on the server's pings.",
+      "extras": {
+        "go": "0 means the default, since a Config field starts at 0; a negative value is a ConfigError.",
+        "rust": "Below watchdog_interval is a config error: the idle check runs once per watchdog tick, and the client pings every third of the timeout."
+      }
+    },
+    {
+      "name": "queue_size",
+      "default": "queue_size",
+      "min": 1,
+      "meaning": "Bound on each subscription's queue. It is one value for the client: for a different size, use a second client.",
+      "extras": {
+        "go": "0 means the default, since a Config field starts at 0; a negative value is a ConfigError."
+      }
+    }
+  ],
+  "errors": [
+    {
+      "kind": "api",
+      "fields": ["code", "message", "status", "rpc", "retryable"],
+      "names": { "python": "ApiError", "typescript": "ApiError", "go": "APIError", "rust": "Api" },
+      "renamed": { "typescript": { "message": "serverMessage" } },
+      "meaning": "The server answered with an error code. message is the server's text.",
+      "extras": { "typescript": "Error.message is taken by the full text, so the server's text is serverMessage." }
+    },
+    {
+      "kind": "rate_limit",
+      "parent": "api",
+      "fields": ["message", "status", "rpc"],
+      "names": { "python": "RateLimitError", "typescript": "RateLimitError", "go": "RateLimitError", "rust": "RateLimit" },
+      "renamed": { "typescript": { "message": "serverMessage" } },
+      "meaning": "Code 1006; reads were already retried.",
+      "extras": {
+        "go": "Its own struct that unwraps to an *APIError, so errors.As finds both.",
+        "rust": "One enum, grvt::Error, with a variant per kind, so parents don't apply."
+      }
+    },
+    {
+      "kind": "transport",
+      "fields": ["rpc", "sent"],
+      "names": { "python": "TransportError", "typescript": "TransportError", "go": "TransportError", "rust": "Transport" },
+      "meaning": "No usable answer; sent says whether the request may have left."
+    },
+    {
+      "kind": "order_state_unknown",
+      "fields": ["rpc", "reason", "client_order_id", "client_order_ids"],
+      "names": { "python": "OrderStateUnknown", "typescript": "OrderStateUnknown", "go": "OrderStateUnknownError", "rust": "OrderStateUnknown" },
+      "meaning": "A write may or may not have reached the exchange; it wraps the original failure."
+    },
+    {
+      "kind": "order_out_of_bounds",
+      "fields": ["instrument", "leg", "field", "check", "limit", "value", "limit_value", "nearest", "server_code"],
+      "names": { "python": "OrderOutOfBounds", "typescript": "OrderOutOfBounds", "go": "OrderOutOfBoundsError", "rust": "OrderOutOfBounds" },
+      "meaning": "An order leg breaks its instrument's limits; nothing was sent.",
+      "extras": {
+        "python": "Also a ValueError, as before it had its own class."
+      }
+    },
+    {
+      "kind": "stream_overflow",
+      "fields": ["stream", "selector", "capacity"],
+      "names": { "python": "StreamOverflow", "typescript": "StreamOverflow", "go": "StreamOverflowError", "rust": "StreamOverflow" },
+      "meaning": "The consumer fell behind a stream that may not drop items."
+    },
+    {
+      "kind": "frame_too_large",
+      "fields": ["size", "limit"],
+      "names": { "python": "FrameTooLarge", "typescript": "FrameTooLarge", "go": "FrameTooLargeError", "rust": "FrameTooLarge" },
+      "meaning": "A WebSocket request is larger than the environment's frame limit; nothing was sent. Not a transport error: sending it again fails the same way."
+    },
+    {
+      "kind": "decode",
+      "fields": ["rpc"],
+      "names": { "python": "DecodeError", "typescript": "DecodeError", "go": "DecodeError", "rust": "Decode" },
+      "meaning": "A response or stream frame did not match its type."
+    },
+    {
+      "kind": "signing",
+      "fields": [],
+      "names": { "python": "SigningError", "typescript": "SigningError", "go": "SigningError", "rust": "Signing" },
+      "meaning": "A request could not be signed (missing field, over-precise decimal); nothing was sent.",
+      "extras": {
+        "python": "Also a ValueError, which signing raised before.",
+        "typescript": "DecimalError extends it with the decimal's details."
+      }
+    },
+    {
+      "kind": "config",
+      "fields": [],
+      "names": { "python": "ConfigError", "typescript": "ConfigError", "go": "ConfigError", "rust": "Config" },
+      "meaning": "A bad option, or the client lacks something the call needs (signer, API key).",
+      "extras": {
+        "python": "Also a ValueError, which bad options raised before."
+      }
+    },
+    {
+      "kind": "closed",
+      "fields": [],
+      "names": { "python": "ClosedError", "typescript": "ClosedError", "go": "ErrClosed", "rust": "Closed" },
+      "meaning": "The client was closed.",
+      "extras": {
+        "go": "A sentinel error value, checked with errors.Is."
+      }
+    },
+    {
+      "kind": "pagination_cycle",
+      "fields": ["cursor"],
+      "names": { "python": "PaginationCycle", "typescript": "PaginationCycle", "go": "PaginationCycleError", "rust": "PaginationCycle" },
+      "meaning": "The server repeated a cursor during a traversal."
+    },
+    {
+      "kind": "book",
+      "fields": ["reason", "gap"],
+      "names": { "python": "BookError", "typescript": "BookError", "go": "BookError", "rust": "BookError" },
+      "meaning": "The local order book must be rebuilt from a fresh snapshot.",
+      "extras": {
+        "rust": "Its own struct, returned by the order book helper, not a grvt::Error variant."
+      }
+    }
+  ],
+  "events": [
+    {
+      "kind": "connect",
+      "fields": ["socket"],
+      "when": "A WebSocket connected for the first time."
+    },
+    {
+      "kind": "reconnect",
+      "fields": ["socket"],
+      "when": "A WebSocket connected again after its connection was lost."
+    },
+    {
+      "kind": "disconnect",
+      "fields": ["socket", "code", "reason"],
+      "when": "A WebSocket connection closed. code is the close code, when there is one."
+    },
+    {
+      "kind": "subscribe",
+      "fields": ["socket", "stream", "selector", "latest_sequence_number", "num_snapshots"],
+      "when": "The gateway answered a subscribe, after the first one or a re-subscribe."
+    },
+    {
+      "kind": "gap",
+      "fields": ["socket", "stream", "selector", "gap", "expected_prev", "prev", "seq"],
+      "when": "A subscription may have missed items. gap holds the bounds; expected_prev, prev and seq describe a sequence_mismatch only."
+    },
+    {
+      "kind": "retry",
+      "fields": ["socket", "rpc", "attempt", "delay", "error"],
+      "when": "A read failed and is tried again after delay (rpc is set), or a WebSocket connect failed and is tried again (socket is set). attempt counts from 1.",
+      "renamed": { "go": { "error": "Err" }, "typescript": { "delay": "delayMs" } }
+    },
+    {
+      "kind": "frame",
+      "fields": ["socket", "direction", "raw"],
+      "when": "Every WebSocket frame sent or received, raw and not redacted.",
+      "renamed": { "go": { "direction": "Outgoing" } },
+      "extras": { "go": "Outgoing is true for a sent frame: a bool instead of a direction." }
+    },
+    {
+      "kind": "session_rotated",
+      "fields": ["websocket_reconnect_required", "generation", "expires_at"],
+      "when": "A session renewal logged in. Authenticated WebSockets reconnect with the new cookie; this says nothing about missed items."
+    },
+    {
+      "kind": "error",
+      "fields": ["socket", "fatal", "error"],
+      "when": "Something failed outside a call. fatal: a WebSocket stopped for good after its handshake or login was refused. Not fatal: a session renewal failed (no socket; error starts with \"session: \") and is tried again after session_retry_delay.",
+      "renamed": { "go": { "error": "Err" } },
+      "extras": { "python": "Also a non-fatal error when a WebSocket's read loop fails unexpectedly, before it reconnects." }
+    }
+  ]
 }

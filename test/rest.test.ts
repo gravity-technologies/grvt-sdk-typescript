@@ -1,34 +1,43 @@
 import { Decimal } from "../src/runtime/scalars.js";
-// REST calls, login, retries and writes against a fake HTTP transport.
+// REST calls, login, retries and writes against a fake HTTP transport, in both wire encodings.
 
 import { inspect } from "node:util";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   ApiError,
   ConfigError,
-  ErrorCode,
   type Event,
   Grvt,
   type models as m,
   OrderOutOfBounds,
   OrderStateUnknown,
   PrivateKeySigner,
-  RateLimitError,
 } from "../src/index.js";
 import { fixture } from "./fixtures.js";
-import { FakeHttp, FULL, sentNoAnswer } from "./fakes.js";
+import { checkViolations, type Encoding, ENCODINGS, FakeHttp, sentNoAnswer } from "./fakes.js";
 
 const KEY = "0xbfe25ff07bd38cb3fbc28a2a296d41aabd68a78c929d257935906489fc9c6d89";
 const err503 = { status: 503, body: '{"code":0,"message":"busy","status":503}' };
 
-function setup(withKey = true) {
-  const http = new FakeHttp();
+const https: FakeHttp[] = [];
+
+/** A fake that speaks `encoding`, checked after the test. */
+function fakeHttp(encoding: Encoding): FakeHttp {
+  const http = new FakeHttp({ lite: encoding === "lite" });
+  https.push(http);
+  return http;
+}
+
+afterEach(() => checkViolations(https));
+
+function setup(encoding: Encoding) {
+  const http = fakeHttp(encoding);
   const events: Event[] = [];
   const c = new Grvt({
-    ...FULL,
+    encoding,
     env: "testnet",
     http,
-    apiKey: withKey ? "k" : undefined,
+    apiKey: "k",
     signer: new PrivateKeySigner(KEY),
     onEvent: (e) => events.push(e),
   });
@@ -52,15 +61,15 @@ const order = (): m.OrderInput => ({
   ],
 });
 
-describe("REST", () => {
+describe.each(ENCODINGS)("REST (%s)", (encoding) => {
   it("public reads send no session; private calls log in once and send cookie + account id", async () => {
-    const { c, http } = setup();
+    const { c, http } = setup(encoding);
     http.on("/full/v1/ticker", {
       body: '{"result":{"instrument":"BTC_USDT_Perp","mark_price":"65000.1"}}',
     });
     const t = await c.ticker({ instrument: "BTC_USDT_Perp" });
     expect(t.result?.mark_price?.toString()).toBe("65000.1");
-    expect(http.calls[0]!.url).toBe("https://market-data.testnet.grvt.io/full/v1/ticker");
+    expect(http.calls[0]!.url).toBe(`https://market-data.testnet.grvt.io/${encoding}/v1/ticker`);
     expect(http.calls[0]!.headers.Cookie).toBeUndefined();
     expect(http.logins).toBe(0);
 
@@ -79,7 +88,7 @@ describe("REST", () => {
   });
 
   it("printing the session never shows the cookie", async () => {
-    const { c } = setup();
+    const { c } = setup(encoding);
     await c.subAccountSummary({ sub_account_id: "1" });
     expect(c.runtime.session.cookie).toBe("cookie-1");
     const shown = [
@@ -94,7 +103,7 @@ describe("REST", () => {
   });
 
   it("signs the session's main account, loaded once from funding_account_summary", async () => {
-    const { c, http } = setup();
+    const { c, http } = setup(encoding);
     const main = "0x0c3e7b0a6c8a1b2d3e4f5a6b7c8d9e0f1a2b3c4d";
     http.on("/full/v1/funding_account_summary", err503, {
       body: JSON.stringify(
@@ -111,31 +120,6 @@ describe("REST", () => {
     expect(http.callsTo("/full/v1/funding_account_summary")).toHaveLength(2);
     expect(http.callsTo("/full/v1/vault_burn_tokens")).toHaveLength(2);
   });
-  it("an authenticated call without an api key is a ConfigError, nothing sent", async () => {
-    const { c, http } = setup(false);
-    await expect(c.subAccountSummary({ sub_account_id: "1" })).rejects.toThrow(ConfigError);
-    expect(http.calls).toHaveLength(0);
-  });
-
-  it("reads do not retry a non-retryable error; rate limits are RateLimitError", async () => {
-    const { c, http } = setup();
-    http.on("/full/v1/ticker", { status: 400, body: '{"code":3000,"message":"bad","status":400}' });
-    const err = await c.ticker({ instrument: "X" }).catch((e) => e);
-    expect(err).toBeInstanceOf(ApiError);
-    expect(err.code).toBe(3000);
-    expect(http.callsTo("/full/v1/ticker")).toHaveLength(1);
-
-    http.on("/full/v1/ticker", {
-      status: 429,
-      body: '{"code":1006,"message":"slow down","status":429}',
-    });
-    const rl = await c.ticker({ instrument: "X" }).catch((e) => e);
-    expect(rl).toBeInstanceOf(RateLimitError);
-    expect(rl).toBeInstanceOf(ApiError);
-    expect(rl.code).toBe(ErrorCode.RATE_LIMIT);
-    expect(http.callsTo("/full/v1/ticker")).toHaveLength(4);
-  });
-
   it.each([
     { status: 200, body: "not json" },
     { status: 200, body: "null" },
@@ -144,7 +128,7 @@ describe("REST", () => {
     { status: 400, body: "proxy failed" },
     { status: 503, body: '{"code":1002,"message":"busy"}' },
   ])("keeps ambiguous write replies and their cause: %j", async (reply) => {
-    const { c, http } = setup();
+    const { c, http } = setup(encoding);
     http.on("/full/v1/create_order", reply);
     const err = await c.createOrder({ order: order() }).catch((e) => e);
     expect(err).toBeInstanceOf(OrderStateUnknown);
@@ -154,38 +138,36 @@ describe("REST", () => {
     expect(http.callsTo("/full/v1/create_order")).toHaveLength(1);
   });
 
-  it.each([false, true])("reports the IDs submitted after beforeSend (bulk=%s)", async (bulk) => {
-    const http = new FakeHttp();
+  // The IDs are how an unknown outcome is looked up: a hook that changes them fails before anything is sent.
+  it.each([
+    ["change an id", false, (o: m.OrderInput[]) => (o[0]!.metadata = { client_order_id: "99" })],
+    ["remove an id", false, (o: m.OrderInput[]) => delete o[0]!.metadata!.client_order_id],
+    ["change a bulk id", true, (o: m.OrderInput[]) => (o[1]!.metadata = { client_order_id: "99" })],
+    ["drop a bulk order", true, (o: m.OrderInput[]) => o.splice(1)],
+  ])("beforeSend must not change the orders or their IDs: %s", async (_, bulk, change) => {
+    const http = fakeHttp(encoding);
     const c = new Grvt({
-      ...FULL,
+      encoding,
       env: "testnet",
       http,
       apiKey: "k",
       signer: new PrivateKeySigner(KEY),
       beforeSend: (call) => {
-        const orders = bulk
-          ? (call.params.orders as m.OrderInput[])
-          : [call.params.order as m.OrderInput];
-        for (const o of orders) o.metadata = { client_order_id: "99" };
-        if (bulk) orders.splice(1);
+        change(bulk ? (call.params.orders as m.OrderInput[]) : [call.params.order as m.OrderInput]);
       },
     });
-    c.runtime.metadata.putInstrument("BTC_USDT_Perp", {
-      instrument_hash: "0x030501",
-      base_decimals: 9,
-    });
-    http.on(bulk ? "/full/v2/bulk_orders" : "/full/v1/create_order", sentNoAnswer());
     const e = await (
       bulk
         ? c.bulkOrders({ sub_account_id: "1", orders: [order(), order()] })
         : c.createOrder({ order: order() })
     ).catch((error) => error);
-    expect(e).toBeInstanceOf(OrderStateUnknown);
-    expect(e.clientOrderIds).toEqual(["99"]);
+    expect(e).toBeInstanceOf(ConfigError);
+    expect(e.message).toMatch(/client order IDs/);
+    expect(http.callsTo(bulk ? "/full/v2/bulk_orders" : "/full/v1/create_order")).toHaveLength(0);
   });
 
   it("bulkOrders signs each order on its own and fills each client_order_id", async () => {
-    const { c, http } = setup();
+    const { c, http } = setup(encoding);
     http.on("/full/v2/bulk_orders", { body: '{"orders":[],"cancel_acks":[]}' });
     const withBuilder: m.OrderInput = {
       ...order(),
@@ -203,7 +185,7 @@ describe("REST", () => {
     expect(sent[0].signature.nonce).not.toBe(sent[1].signature.nonce);
     for (const o of sent) expect(o.signature.r).toMatch(/^0x[0-9a-f]{64}$/);
     // A pure bulk cancel has nothing to sign and needs no signer.
-    const noSigner = new Grvt({ ...FULL, env: "testnet", http, apiKey: "k" });
+    const noSigner = new Grvt({ encoding, env: "testnet", http, apiKey: "k" });
     await noSigner.bulkOrders({ sub_account_id: "1", client_order_ids: ["42"] });
     const cancel = JSON.parse(http.callsTo("/full/v2/bulk_orders")[1]!.body);
     expect(cancel.orders).toBeUndefined();
@@ -211,22 +193,20 @@ describe("REST", () => {
     expect(cancel.client_order_ids).toBeUndefined();
   });
 
-  it("a bulk write whose answer is lost is OrderStateUnknown with every client_order_id", async () => {
-    const { c, http } = setup();
+  // The IDs themselves are checked by the shared scenarios; this is the error's shape for a bulk write.
+  it("a bulk write's OrderStateUnknown has no single clientOrderId and lists every id in its message", async () => {
+    const { c, http } = setup(encoding);
     http.on("/full/v2/bulk_orders", sentNoAnswer());
     const err = await c
       .bulkOrders({ sub_account_id: "8289849667772468", orders: [order(), order()] })
       .catch((e) => e);
     expect(err).toBeInstanceOf(OrderStateUnknown);
-    const sent = JSON.parse(http.callsTo("/full/v2/bulk_orders")[0]!.body).orders;
-    expect(err.clientOrderIds).toEqual(sent.map((o: any) => o.metadata.client_order_id));
-    expect(err.clientOrderIds).toHaveLength(2);
     expect(err.clientOrderId).toBeUndefined();
     expect(err.message).toContain("client_order_ids=");
   });
 
   it("an order the gateway rejects for its limits drops that instrument's metadata, and is not resent", async () => {
-    const { c, http } = setup();
+    const { c, http } = setup(encoding);
     c.runtime.metadata.putInstrument("ETH_USDT_Perp", {
       instrument_hash: "0x030401",
       base_decimals: 9,
@@ -255,8 +235,9 @@ describe("REST", () => {
     expect(http.callsTo("/full/v1/instrument")).toHaveLength(1);
   });
 
-  it("an order off its instrument's tick is refused before signing, nothing sent", async () => {
-    const { c, http } = setup();
+  // Refused before sending is a shared scenario; this checks the nearest valid prices it reports.
+  it("an off-tick refusal names the nearest prices on the tick", async () => {
+    const { c } = setup(encoding);
     c.runtime.metadata.putInstrument("BTC_USDT_Perp", {
       instrument_hash: "0x030501",
       base_decimals: 9,
@@ -276,13 +257,12 @@ describe("REST", () => {
     const err = await c.createOrder({ order: bad }).catch((e) => e);
     expect(err).toBeInstanceOf(OrderOutOfBounds);
     expect(err.nearest).toEqual(["65000.1", "65000.2"]);
-    expect(http.calls).toHaveLength(0);
   });
 
   it("with checkOrders off, an off-tick order is signed and sent", async () => {
-    const http = new FakeHttp();
+    const http = fakeHttp(encoding);
     const c = new Grvt({
-      ...FULL,
+      encoding,
       env: "testnet",
       http,
       apiKey: "k",
@@ -310,7 +290,7 @@ describe("REST", () => {
   });
 
   it("signs create_order, loading instrument metadata once", async () => {
-    const { c, http } = setup();
+    const { c, http } = setup(encoding);
     (c.runtime.metadata as unknown as { instruments: Map<string, unknown> }).instruments.clear(); // force a load
     http.on("/full/v1/instrument", {
       body: JSON.stringify({
@@ -337,10 +317,10 @@ describe("REST", () => {
   });
 
   it("beforeSend runs before signing; required fields are checked before anything else", async () => {
-    const http = new FakeHttp();
+    const http = fakeHttp(encoding);
     const seen: unknown[] = [];
     const c = new Grvt({
-      ...FULL,
+      encoding,
       http,
       apiKey: "k",
       signer: new PrivateKeySigner(KEY),

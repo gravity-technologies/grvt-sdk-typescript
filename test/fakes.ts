@@ -7,7 +7,8 @@
 // - unsubscribe -> reply
 // - any other method -> {"result": rpcResult(method, params)} unless the method is in ignoreRpcs
 // - push() sends a delta to every connection subscribed to that stream + selector; dropAll() closes
-//   every connection
+//   every connection; silence() keeps every connection open but makes it send nothing more
+// - like the real server, each open connection pings the client (onheartbeat) until it is silenced
 //
 // Both fakes also speak lite (`{ lite: true }`): they translate at their edge with the reference converter
 // (test/reference/lite.ts), keep what they received in full names for the assertions, and record in
@@ -36,8 +37,18 @@ import {
 
 export type HttpReply = Partial<HttpResponse> | Error;
 
-/** Client options for a test against the fakes in their default full encoding (the client defaults to lite). */
-export const FULL = { encoding: "full" } as const;
+/** Both wire encodings: a test that talks to the fakes runs once in each. */
+export const ENCODINGS = ["full", "lite"] as const;
+export type Encoding = (typeof ENCODINGS)[number];
+
+/**
+ * Throws if a fake saw a key that is not a lite name or a call in the wrong encoding, and empties the list.
+ * For an afterEach: the real lite server reads a full name as an absent field, so the test alone may pass.
+ */
+export function checkViolations(fakes: { violations: string[] }[]): void {
+  const found = fakes.splice(0).flatMap((f) => f.violations);
+  if (found.length) throw new Error(`the fakes saw wrong names or paths:\n${found.join("\n")}`);
+}
 
 export class FakeHttp implements HttpTransport {
   /** Requests as received; for a lite call, `body` is translated to full names and `wire` is as sent. */
@@ -135,8 +146,20 @@ export class FakeSocket implements WebSocketLike {
   onmessage: ((ev: { data: unknown }) => void) | null = null;
   onclose: ((ev: { code?: number; reason?: string; status?: number }) => void) | null = null;
   onerror: ((ev: any) => void) | null = null;
+  private heartbeat: (() => void) | null = null;
+  /** The first ping comes as soon as the client listens, so its idle check is on from the start. */
+  get onheartbeat(): (() => void) | null {
+    return this.heartbeat;
+  }
+  set onheartbeat(fn: (() => void) | null) {
+    this.heartbeat = fn;
+    if (!this.silent && this.readyState === 1) fn?.();
+  }
   /** "stream selector" keys this connection subscribed to. */
   readonly subs = new Set<string>();
+  /** Sends nothing more: no frames, replies or pings. */
+  silent = false;
+  private pings: ReturnType<typeof setInterval> | undefined;
 
   constructor(
     private readonly gw: FakeGateway,
@@ -154,7 +177,14 @@ export class FakeSocket implements WebSocketLike {
       }
       this.readyState = 1;
       this.onopen?.({});
+      this.pings = setInterval(() => this.onheartbeat?.(), 100);
+      (this.pings as { unref?: () => void }).unref?.();
     }, 0);
+  }
+
+  silence(): void {
+    this.silent = true;
+    clearInterval(this.pings);
   }
 
   send(data: string): void {
@@ -165,6 +195,7 @@ export class FakeSocket implements WebSocketLike {
   }
 
   close(code = 1000): void {
+    clearInterval(this.pings);
     if (this.readyState === 3) return;
     this.readyState = 3;
     queueMicrotask(() => this.onclose?.({ code }));
@@ -172,13 +203,14 @@ export class FakeSocket implements WebSocketLike {
 
   /** Server -> client, in full names; `resultType` is the reply's result type (lite only). */
   deliver(obj: unknown, resultType?: string): void {
-    if (this.readyState !== 1) return;
+    if (this.readyState !== 1 || this.silent) return;
     const out = this.gw.lite ? toLiteFrame(obj, resultType) : obj;
     queueMicrotask(() => this.readyState === 1 && this.onmessage?.({ data: JSON.stringify(out) }));
   }
 
   /** Server closes the connection, after the frames it already sent. */
   drop(code = 1006): void {
+    clearInterval(this.pings);
     queueMicrotask(() => {
       if (this.readyState === 3) return;
       this.readyState = 3;
@@ -336,6 +368,11 @@ export class FakeGateway {
 
   dropAll(code = 1006): void {
     for (const c of this.conns) c.drop(code);
+  }
+
+  /** Every open connection stays open but sends nothing more: no frames, replies or pings. */
+  silence(): void {
+    for (const c of this.conns) c.silence();
   }
 
   open(): FakeSocket[] {

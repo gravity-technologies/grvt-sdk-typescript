@@ -1,8 +1,9 @@
 import type { OrderbookLevel, WSOrderbookLevelsFeedDataV1 } from "./generated/models.js";
 import type { GapRange, Event } from "./runtime/hooks.js";
+import { GrvtError } from "./runtime/errors.js";
 import { Decimal, Timestamp } from "./runtime/scalars.js";
 
-export class BookError extends Error {
+export class BookError extends GrvtError {
   constructor(
     readonly reason: string,
     readonly gap?: GapRange,

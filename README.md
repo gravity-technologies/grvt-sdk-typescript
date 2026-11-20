@@ -3,29 +3,33 @@
 The TypeScript SDK for the Grvt derivatives exchange: REST calls, WebSocket streams, order signing and login
 in one ESM package for Node and modern browsers.
 
-> **Preview:** 0.x releases can change the API. Pin the exact commit you build from.
+> **Preview.** Any 0.x release can change the API. Pin the exact commit you install.
 
 ## Install
 
-**Not published to npm yet.** Build it from the Grvt platform repository (you need access to it). You need
-Node 22 or newer and the repository's Go toolchain, which generates part of the source.
-
-From the repository root:
+Not on the npm registry yet. Install it from its public GitHub repository instead; npm builds it during the
+install. Needs Node.js 24 or newer.
 
 ```sh
-make sdk-gen-typescript
-cd sdk/languages/typescript
-npm ci
-npm run build
+npm install github:gravity-technologies/grvt-sdk-typescript
 ```
 
-Then add the built package to your own project. From your application directory:
+Import it as `grvt`. The repository has no version tags yet and its `main` branch moves, so pin the commit you
+tested: `npm install github:gravity-technologies/grvt-sdk-typescript#<commit>`.
 
-```sh
-npm install /absolute/path/to/platform/sdk/languages/typescript
-```
+With other package managers, pin the commit too:
 
-Import it as `grvt`.
+- **yarn 1** installs and builds it.
+- **pnpm** (tested with pnpm 12) stops with `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`, because the package builds
+  itself on install. Allow that build in your project's `pnpm-workspace.yaml`, keyed by the package's exact Git
+  address and commit; a wildcard such as `grvt@*` is not accepted:
+
+  ```yaml
+  allowBuilds:
+    "grvt@<git URL>#<commit>": true
+  ```
+
+- **bun** hasn't been tested.
 
 ## Quickstart
 
@@ -70,7 +74,7 @@ For a full run that reads testnet data and can place, watch and cancel one order
 
 ## TypeScript notes
 
-- **Node 22+ and ESM only.** HTTP and WebSocket use the global `fetch` and `WebSocket`. The only runtime
+- **Node.js 24+ and ESM only.** HTTP and WebSocket use the global `fetch` and `WebSocket`. The only runtime
   dependencies are `@noble/curves` and `@noble/hashes`.
 - **Browsers get public data only.** Private calls, private streams and orders need the login cookie, and
   browsers neither let code read it nor send it on a WebSocket. Run those from Node.
@@ -83,12 +87,7 @@ For a full run that reads testnet data and can place, watch and cancel one order
 
 ## Known limitations
 
-- Private calls, private streams and orders don't work in the browser.
-- No client heartbeat: a quiet but dead connection is noticed only when TCP gives up.
-- A rejected WebSocket handshake (401/403) is retried like a network error, because the global `WebSocket`
-  hides the HTTP status.
-- Private streams can't resume from a sequence number; fill missed events from REST history.
-- Login is by API key only; wallet login is not supported.
+See [Not supported yet](https://developers.grvt.io/sdks/typescript#not-supported-yet) on the TypeScript SDK page.
 
 ## Contributing
 

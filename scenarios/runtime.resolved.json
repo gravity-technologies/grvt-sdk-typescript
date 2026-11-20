@@ -1,0 +1,600 @@
+[
+  {
+    "name": "read retries a rate limit, then succeeds",
+    "call": { "kind": "read" },
+    "replies": [
+      { "status": 429, "body": { "code": 1006, "message": "slow down", "status": 429 } },
+      { "status": 200, "body": { "result": { "instrument": "BTC_USDT_Perp" } } }
+    ],
+    "expect": { "outcome": "ok", "attempts": 2, "retries": 1 }
+  },
+  {
+    "name": "read retries the first two retry statuses whatever the code",
+    "call": { "kind": "read" },
+    "replies": [
+      { "status": 502, "body": { "code": 1003, "message": "bad gateway" } },
+      { "status": 503, "body": { "code": 1003, "message": "unavailable" } },
+      { "status": 200, "body": { "result": { "instrument": "BTC_USDT_Perp" } } }
+    ],
+    "expect": {
+      "outcome": "ok",
+      "attempts": 3,
+      "retries": 2,
+      "events": [
+        { "kind": "retry", "rpc": "v1/ticker", "attempt": 1 },
+        { "kind": "retry", "rpc": "v1/ticker", "attempt": 2 }
+      ]
+    }
+  },
+  {
+    "name": "read retries the third retry status whatever the code",
+    "call": { "kind": "read" },
+    "replies": [
+      { "status": 504, "body": { "code": 1003, "message": "gateway timeout" } },
+      { "status": 200, "body": { "result": { "instrument": "BTC_USDT_Perp" } } }
+    ],
+    "expect": { "outcome": "ok", "attempts": 2, "retries": 1 }
+  },
+  {
+    "name": "read gives up after the attempt limit",
+    "call": { "kind": "read" },
+    "replies": [{ "status": 429, "body": { "code": 1006, "message": "slow down", "status": 429 } }],
+    "expect": {
+      "outcome": "rate_limited",
+      "status": 429,
+      "attempts": 3,
+      "retries": 2
+    }
+  },
+  {
+    "name": "read does not retry a rejection",
+    "call": { "kind": "read" },
+    "replies": [{ "status": 400, "body": { "code": 1003, "message": "bad", "status": 400 } }],
+    "expect": { "outcome": "api_error", "code": 1003, "status": 400, "retryable": false, "attempts": 1, "retries": 0 }
+  },
+  {
+    "name": "read retries a connection refused before sending",
+    "call": { "kind": "read" },
+    "replies": [{ "refuse": true }, { "status": 200, "body": { "result": { "instrument": "BTC_USDT_Perp" } } }],
+    "expect": { "outcome": "ok", "attempts": 2, "retries": 1 }
+  },
+  {
+    "name": "read retries a connection dropped after sending",
+    "call": { "kind": "read" },
+    "replies": [{ "drop": true }, { "status": 200, "body": { "result": { "instrument": "BTC_USDT_Perp" } } }],
+    "expect": { "outcome": "ok", "attempts": 2, "retries": 1 }
+  },
+  {
+    "name": "read with a malformed success body is a decode error",
+    "call": { "kind": "read" },
+    "replies": [{ "status": 200, "raw": "not json" }],
+    "expect": { "outcome": "decode_error", "attempts": 1, "retries": 0 }
+  },
+  {
+    "name": "read whose success body has the wrong shape is a decode error",
+    "call": { "kind": "read" },
+    "replies": [{ "status": 200, "body": { "result": null } }],
+    "expect": { "outcome": "decode_error", "attempts": 1, "retries": 0 }
+  },
+  {
+    "name": "write is never retried, even on a retryable status and code",
+    "call": { "kind": "write", "client_order_id": "9223372036854775808" },
+    "replies": [{ "status": 503, "body": { "code": 1015, "message": "unavailable", "status": 503 } }],
+    "expect": {
+      "outcome": "order_state_unknown",
+      "rpc": "v1/create_order",
+      "client_order_ids": ["9223372036854775808"],
+      "attempts": 1,
+      "retries": 0
+    }
+  },
+  {
+    "name": "write with a 5xx status is unknown even with a 4xx code",
+    "call": { "kind": "write", "client_order_id": "9223372036854775808" },
+    "replies": [{ "status": 500, "body": { "code": 1003, "message": "bad" } }],
+    "expect": {
+      "outcome": "order_state_unknown",
+      "rpc": "v1/create_order",
+      "client_order_ids": ["9223372036854775808"],
+      "attempts": 1
+    }
+  },
+  {
+    "name": "write with code 1002 is unknown",
+    "call": { "kind": "write", "client_order_id": "9223372036854775808" },
+    "replies": [{ "status": 400, "body": { "code": 1002, "message": "internal" } }],
+    "expect": {
+      "outcome": "order_state_unknown",
+      "rpc": "v1/create_order",
+      "client_order_ids": ["9223372036854775808"],
+      "attempts": 1
+    }
+  },
+  {
+    "name": "write with code 1005 is unknown",
+    "call": { "kind": "write", "client_order_id": "9223372036854775808" },
+    "replies": [{ "status": 400, "body": { "code": 1005, "message": "unknown" } }],
+    "expect": {
+      "outcome": "order_state_unknown",
+      "rpc": "v1/create_order",
+      "client_order_ids": ["9223372036854775808"],
+      "attempts": 1
+    }
+  },
+  {
+    "name": "write with a code outside the contract is unknown",
+    "call": { "kind": "write", "client_order_id": "9223372036854775808" },
+    "replies": [{ "status": 400, "body": { "code": 987654, "message": "new" } }],
+    "expect": {
+      "outcome": "order_state_unknown",
+      "rpc": "v1/create_order",
+      "client_order_ids": ["9223372036854775808"],
+      "attempts": 1
+    }
+  },
+  {
+    "name": "write with a 4xx status and a 4xx contract code is a definite rejection",
+    "call": { "kind": "write", "client_order_id": "9223372036854775808" },
+    "replies": [{ "status": 400, "body": { "code": 1003, "message": "bad", "status": 400 } }],
+    "expect": { "outcome": "api_error", "code": 1003, "status": 400, "retryable": false, "attempts": 1 }
+  },
+  {
+    "name": "write rate limit is a definite rejection and is not retried",
+    "call": { "kind": "write", "client_order_id": "9223372036854775808" },
+    "replies": [{ "status": 429, "body": { "code": 1006, "message": "slow down", "status": 429 } }],
+    "expect": { "outcome": "rate_limited", "status": 429, "attempts": 1, "retries": 0 }
+  },
+  {
+    "name": "write with a malformed success body is unknown",
+    "call": { "kind": "write", "client_order_id": "9223372036854775808" },
+    "replies": [{ "status": 200, "raw": "not json" }],
+    "expect": {
+      "outcome": "order_state_unknown",
+      "rpc": "v1/create_order",
+      "client_order_ids": ["9223372036854775808"],
+      "attempts": 1
+    }
+  },
+  {
+    "name": "write refused before sending is a transport error, not unknown",
+    "call": { "kind": "write", "client_order_id": "9223372036854775808" },
+    "replies": [{ "refuse": true }],
+    "expect": { "outcome": "transport_error", "sent": false, "attempts": 1 }
+  },
+  {
+    "name": "write whose connection drops after sending is unknown",
+    "call": { "kind": "write" },
+    "replies": [{ "drop": true }],
+    "expect": {
+      "outcome": "order_state_unknown",
+      "rpc": "v1/create_order",
+      "attempts": 1,
+      "sent_client_order_id": "generated"
+    }
+  },
+  {
+    "name": "generated client order id is in [2^63, 2^64)",
+    "call": { "kind": "write" },
+    "replies": [{ "status": 400, "body": { "code": 1003, "message": "bad", "status": 400 } }],
+    "expect": { "outcome": "api_error", "code": 1003, "attempts": 1, "sent_client_order_id": "generated" }
+  },
+  {
+    "name": "client order id 2^64-1 is sent and reported exactly",
+    "call": { "kind": "write", "client_order_id": "18446744073709551615" },
+    "replies": [{ "drop": true }],
+    "expect": {
+      "outcome": "order_state_unknown",
+      "rpc": "v1/create_order",
+      "client_order_ids": ["18446744073709551615"],
+      "attempts": 1,
+      "sent_client_order_id": "18446744073709551615"
+    }
+  },
+  {
+    "name": "ws write rejected with a contract code is a definite rejection",
+    "call": { "kind": "write", "transport": "ws", "client_order_id": "9223372036854775808" },
+    "replies": [{ "error": { "code": 1003, "message": "bad" } }],
+    "expect": { "outcome": "api_error", "code": 1003, "status": null, "retryable": false, "attempts": 1 }
+  },
+  {
+    "name": "ws write rate limit is a definite rejection",
+    "call": { "kind": "write", "transport": "ws", "client_order_id": "9223372036854775808" },
+    "replies": [{ "error": { "code": 1006, "message": "slow down" } }],
+    "expect": { "outcome": "rate_limited", "status": null, "attempts": 1 }
+  },
+  {
+    "name": "ws write with code 1002 is unknown",
+    "call": { "kind": "write", "transport": "ws", "client_order_id": "9223372036854775808" },
+    "replies": [{ "error": { "code": 1002, "message": "internal" } }],
+    "expect": {
+      "outcome": "order_state_unknown",
+      "rpc": "v1/create_order",
+      "client_order_ids": ["9223372036854775808"],
+      "attempts": 1
+    }
+  },
+  {
+    "name": "ws write with a malformed error is unknown",
+    "call": { "kind": "write", "transport": "ws", "client_order_id": "9223372036854775808" },
+    "replies": [{ "error": { "code": [1003], "message": "bad" } }],
+    "expect": {
+      "outcome": "order_state_unknown",
+      "rpc": "v1/create_order",
+      "client_order_ids": ["9223372036854775808"],
+      "attempts": 1
+    }
+  },
+  {
+    "name": "ws write whose connection drops is unknown",
+    "call": { "kind": "write", "transport": "ws" },
+    "replies": [{ "drop": true }],
+    "expect": {
+      "outcome": "order_state_unknown",
+      "rpc": "v1/create_order",
+      "attempts": 1,
+      "sent_client_order_id": "generated"
+    }
+  },
+  {
+    "name": "ws write without a reply within the request timeout is unknown",
+    "call": { "kind": "write", "transport": "ws", "client_order_id": "9223372036854775808", "ws_request_timeout_ms": 200 },
+    "replies": [{ "hang": true }],
+    "expect": {
+      "outcome": "order_state_unknown",
+      "rpc": "v1/create_order",
+      "client_order_ids": ["9223372036854775808"],
+      "attempts": 1
+    }
+  },
+  {
+    "name": "ws write refused before the frame is written is a transport error",
+    "call": { "kind": "write", "transport": "ws", "client_order_id": "9223372036854775808" },
+    "replies": [{ "refuse": true }],
+    "expect": { "outcome": "transport_error", "sent": false, "attempts": 0 },
+    "skip": {
+      "go": "the fake gateway is a real WebSocket server; it cannot make the client's socket write fail",
+      "rust": "the fake gateway is a real WebSocket server; it cannot make the client's socket write fail"
+    }
+  },
+  {
+    "name": "ws write failing after the frame is written is unknown",
+    "call": { "kind": "write", "transport": "ws", "client_order_id": "9223372036854775808" },
+    "replies": [{ "send_fails": true }],
+    "expect": {
+      "outcome": "order_state_unknown",
+      "rpc": "v1/create_order",
+      "client_order_ids": ["9223372036854775808"],
+      "attempts": 1
+    },
+    "skip": {
+      "go": "the fake gateway is a real WebSocket server; it cannot make the client's socket write fail",
+      "rust": "the fake gateway is a real WebSocket server; it cannot make the client's socket write fail"
+    }
+  },
+  {
+    "name": "bulk write whose connection drops after sending is unknown for every order",
+    "call": { "kind": "write", "bulk": true },
+    "replies": [{ "drop": true }],
+    "expect": { "outcome": "order_state_unknown", "rpc": "v2/bulk_orders", "attempts": 1, "sent_client_order_id": "generated" }
+  },
+  {
+    "name": "ws bulk write without a reply within the request timeout is unknown for every order",
+    "call": { "kind": "write", "bulk": true, "transport": "ws", "ws_request_timeout_ms": 200 },
+    "replies": [{ "hang": true }],
+    "expect": { "outcome": "order_state_unknown", "rpc": "v2/bulk_orders", "attempts": 1, "sent_client_order_id": "generated" }
+  },
+  {
+    "name": "write without an API key fails before sending",
+    "call": { "kind": "write", "client_order_id": "9223372036854775808", "api_key": false },
+    "replies": [],
+    "expect": { "outcome": "config_error", "attempts": 0 }
+  },
+  {
+    "name": "order off its instrument's tick is refused before sending",
+    "call": { "kind": "write", "client_order_id": "9223372036854775808", "off_tick": true },
+    "replies": [],
+    "expect": { "outcome": "order_out_of_bounds", "attempts": 0 }
+  },
+  {
+    "name": "countdown accepts the smallest duration with one write",
+    "call": { "kind": "countdown", "seconds": 1 },
+    "replies": [{ "status": 200, "body": { "result": { "ack": true } } }],
+    "expect": { "outcome": "ok", "attempts": 1 }
+  },
+  {
+    "name": "countdown accepts the largest duration with one write",
+    "call": { "kind": "countdown", "seconds": 300 },
+    "replies": [{ "status": 200, "body": { "result": { "ack": true } } }],
+    "expect": { "outcome": "ok", "attempts": 1 }
+  },
+  {
+    "name": "countdown rejects zero before sending",
+    "call": { "kind": "countdown", "seconds": 0 },
+    "replies": [],
+    "expect": { "outcome": "validation_error", "attempts": 0 }
+  },
+  {
+    "name": "countdown rejects one second over the largest duration before sending",
+    "call": { "kind": "countdown", "seconds": 301 },
+    "replies": [],
+    "expect": { "outcome": "validation_error", "attempts": 0 }
+  },
+  {
+    "name": "countdown rejects a non-integer duration before sending",
+    "call": { "kind": "countdown", "seconds": 1.5 },
+    "replies": [],
+    "expect": { "outcome": "validation_error", "attempts": 0 },
+    "skip": {
+      "go": "the duration is a uint16: a non-integer does not compile",
+      "rust": "the duration is a u16: a non-integer does not compile"
+    }
+  },
+  {
+    "name": "delta stream gap reports open bounds, re-subscribes and resumes from a snapshot, which ends the resync wait (sleeps past the resync timeout plus one watchdog tick)",
+    "call": { "kind": "stream", "stream": "v1.ticker.d", "resync_timeout_ms": 300 },
+    "steps": [
+      { "push": [101, 100] },
+      { "push": [105, 103] },
+      { "wait_acks": 2 },
+      { "sleep_ms": 800 },
+      { "push": [106, 105] }
+    ],
+    "expect": {
+      "items": [0, 101, 0, 106],
+      "gaps": [{ "reason": "sequence_mismatch", "after": 101, "through": null, "frame": [105, 103] }],
+      "subscribes": 2
+    }
+  },
+  {
+    "name": "snapshot stream gap reports closed bounds without re-subscribing",
+    "call": { "kind": "stream", "stream": "v1.ticker.s" },
+    "steps": [{ "push": [103, 101] }],
+    "expect": {
+      "items": [0, 103],
+      "gaps": [{ "reason": "sequence_mismatch", "after": 100, "through": 101 }],
+      "subscribes": 1
+    }
+  },
+  {
+    "name": "no snapshot within the resync timeout reconnects; frames before the reply are dropped",
+    "call": { "kind": "stream", "stream": "v1.ticker.d", "resync_timeout_ms": 300 },
+    "steps": [
+      { "push": [101, 100] },
+      { "ignore_subscribes": 1 },
+      { "push": [110, 108] },
+      { "push": [111, 110] },
+      { "wait_reconnects": 1 },
+      { "wait_acks": 2 }
+    ],
+    "expect": {
+      "items": [0, 101, 0],
+      "gaps": [
+        { "reason": "sequence_mismatch", "after": 101, "through": null },
+        { "reason": "disconnect", "after": null, "through": null }
+      ],
+      "subscribes": 3
+    }
+  },
+  {
+    "name": "dropped connection reports a disconnect gap and re-subscribes",
+    "call": { "kind": "stream", "stream": "v1.ticker.d" },
+    "steps": [
+      { "push": [101, 100] },
+      { "drop": true },
+      { "wait_reconnects": 1 },
+      { "wait_acks": 2 },
+      { "push": [102, 101] }
+    ],
+    "expect": {
+      "items": [0, 101, 0, 102],
+      "gaps": [{ "reason": "disconnect", "after": 101, "through": null }],
+      "subscribes": 2
+    }
+  },
+  {
+    "name": "silent connection is dropped after the idle timeout and re-subscribes",
+    "call": { "kind": "stream", "stream": "v1.ticker.d", "idle_timeout_ms": 1000 },
+    "steps": [
+      { "push": [101, 100] },
+      { "silence": true },
+      { "wait_reconnects": 1 },
+      { "wait_acks": 2 },
+      { "push": [102, 101] }
+    ],
+    "expect": {
+      "items": [0, 101, 0, 102],
+      "gaps": [{ "reason": "disconnect", "after": 101, "through": null }],
+      "subscribes": 2
+    }
+  },
+  {
+    "name": "quiet connection that answers pings stays up past the idle timeout",
+    "call": { "kind": "stream", "stream": "v1.ticker.d", "idle_timeout_ms": 1000 },
+    "steps": [
+      { "push": [101, 100] },
+      { "sleep_ms": 1500 },
+      { "push": [102, 101] }
+    ],
+    "expect": {
+      "items": [0, 101, 102],
+      "gaps": [],
+      "subscribes": 1
+    }
+  },
+  {
+    "name": "undecodable delta is an error item and the stream goes on",
+    "call": { "kind": "stream", "stream": "v1.ticker.d" },
+    "steps": [
+      { "push": [101, 100], "feed": { "value": "not an object" } },
+      { "push": [102, 101] }
+    ],
+    "expect": { "items": [0, "decode_error", 102], "gaps": [], "subscribes": 1 }
+  },
+  {
+    "name": "subscribe asks for global sequence numbers, yields the snapshot then deltas, and unsubscribes on close",
+    "call": { "kind": "stream", "stream": "v1.ticker.d" },
+    "steps": [{ "push": [101, 100] }, { "push": [102, 101] }],
+    "expect": {
+      "subscribe_request": {
+        "stream": "v1.ticker.d",
+        "selectors": ["BTC_USDT_Perp@500"],
+        "use_global_sequence_number": true
+      },
+      "items": [0, 101, 102],
+      "gaps": [],
+      "subscribes": 1,
+      "unsubscribes": 1
+    }
+  },
+  {
+    "name": "a delta seen before is dropped, not a gap",
+    "call": { "kind": "stream", "stream": "v1.ticker.d" },
+    "steps": [{ "push": [101, 100] }, { "push": [102, 101] }, { "push": [102, 101] }, { "push": [103, 102] }],
+    "expect": { "items": [0, 101, 102, 103], "gaps": [], "subscribes": 1 }
+  },
+  {
+    "name": "sequence numbers are sparse: a delta chains to the last one by prev",
+    "call": { "kind": "stream", "stream": "v1.ticker.d" },
+    "steps": [{ "push": [100, 99] }, { "push": [101, 100] }, { "push": [150, 101] }],
+    "expect": { "items": [0, 101, 150], "gaps": [], "subscribes": 1 }
+  },
+  {
+    "name": "only the first delta after a subscribe may chain to an older sequence",
+    "call": { "kind": "stream", "stream": "v1.ticker.d" },
+    "steps": [{ "push": [101, 90] }, { "push": [103, 90] }, { "wait_acks": 2 }],
+    "expect": {
+      "items": [0, 101, 0],
+      "gaps": [{ "reason": "sequence_mismatch", "after": 101, "through": null, "frame": [103, 90] }],
+      "subscribes": 2
+    }
+  },
+  {
+    "name": "a first delta that chains to a sequence newer than the subscribe reply is a gap",
+    "call": { "kind": "stream", "stream": "v1.ticker.d" },
+    "steps": [{ "push": [102, 101] }, { "wait_acks": 2 }],
+    "expect": {
+      "items": [0, 0],
+      "gaps": [{ "reason": "sequence_mismatch", "after": 100, "through": null, "frame": [102, 101] }],
+      "subscribes": 2
+    }
+  },
+  {
+    "name": "first delta after a gap re-subscribe may chain to the sequence before it",
+    "call": { "kind": "stream", "stream": "v1.ticker.d" },
+    "steps": [
+      { "push": [101, 100] },
+      { "ack_latest": 110 },
+      { "push": [105, 103] },
+      { "wait_acks": 2 },
+      { "push": [111, 105] },
+      { "push": [112, 111] }
+    ],
+    "expect": {
+      "items": [0, 101, 0, 111, 112],
+      "gaps": [{ "reason": "sequence_mismatch", "after": 101, "through": null, "frame": [105, 103] }],
+      "subscribes": 2
+    }
+  },
+  {
+    "name": "reconnect re-subscribes every subscription",
+    "call": { "kind": "stream", "stream": "v1.ticker.d", "instruments": ["BTC_USDT_Perp", "ETH_USDT_Perp"] },
+    "steps": [
+      { "push": [101, 100] },
+      { "drop": true },
+      { "wait_reconnects": 1 },
+      { "wait_acks": 4 },
+      { "push": [102, 101] }
+    ],
+    "expect": {
+      "items": [0, 101, 0, 102],
+      "gaps": [{ "reason": "disconnect", "after": 101, "through": null }],
+      "other_subscriptions": [{ "items": [0, 0], "gaps": [{ "reason": "disconnect", "after": 100, "through": null }] }],
+      "subscribes": 2
+    }
+  },
+  {
+    "name": "slow consumer of a delta stream gets an overflow error, then a fresh snapshot",
+    "call": { "kind": "stream", "stream": "v1.ticker.d", "queue_size": 2 },
+    "steps": [{ "push": [101, 100] }, { "push": [102, 101] }, { "push": [103, 102] }, { "wait_acks": 2 }],
+    "expect": {
+      "items": ["stream_overflow", 0],
+      "overflow_capacity": 2,
+      "gaps": [{ "reason": "overflow", "after": null, "through": null }],
+      "subscribes": 2
+    }
+  },
+  {
+    "name": "slow consumer of a private stream gets an overflow error, then a fresh snapshot",
+    "call": { "kind": "stream", "stream": "v1.order", "queue_size": 2 },
+    "steps": [{ "push": [101, 100] }, { "push": [102, 101] }, { "push": [103, 102] }, { "wait_acks": 2 }],
+    "expect": {
+      "items": ["stream_overflow", 0],
+      "overflow_capacity": 2,
+      "gaps": [{ "reason": "overflow", "after": null, "through": null }],
+      "subscribes": 2
+    }
+  },
+  {
+    "name": "slow consumer of a snapshot stream loses the oldest items",
+    "call": { "kind": "stream", "stream": "v1.ticker.s", "queue_size": 2 },
+    "steps": [
+      { "push": [101, 100] },
+      { "push": [102, 101] },
+      { "push": [103, 102] },
+      { "push": [104, 103] },
+      { "push": [105, 104] },
+      { "wait_dropped": 4 }
+    ],
+    "expect": { "items": [104, 105], "gaps": [], "subscribes": 1 }
+  },
+  {
+    "name": "session logs in again at the renewal ratio, then the socket reconnects with the new cookie",
+    "call": { "kind": "stream", "stream": "v1.order", "cookie_max_age_s": 2 },
+    "steps": [{ "wait_reconnects": 1 }, { "wait_acks": 2 }],
+    "expect": {
+      "logins": 2,
+      "relogin_after_ms": [1550, 3000],
+      "session_rotated": [2],
+      "handshake_logins": [1, 2],
+      "items": [0, 0],
+      "gaps": [{ "reason": "disconnect", "after": 100, "through": null }],
+      "subscribes": 2
+    }
+  },
+  {
+    "name": "pages are read one fetch at a time and go on after an empty page",
+    "call": { "kind": "pages" },
+    "replies": [{ "next": "a" }, { "next": "" }],
+    "expect": { "outcome": "ok", "pages": 2, "cursors": [null, "a"] }
+  },
+  {
+    "name": "pages stop before fetching a cursor again",
+    "call": { "kind": "pages" },
+    "replies": [{ "next": "a" }],
+    "expect": { "outcome": "pagination_cycle", "cursor": "a", "pages": 2, "cursors": [null, "a"] }
+  },
+  {
+    "name": "a failed page fetch ends the pages without a retry",
+    "call": { "kind": "pages" },
+    "replies": [{ "fail": true }],
+    "expect": { "outcome": "fetch_error", "pages": 0, "cursors": [null] }
+  },
+  {
+    "name": "pages fetch nothing more after the reader stops",
+    "call": { "kind": "pages", "take": 1 },
+    "replies": [{ "next": "a" }],
+    "expect": { "outcome": "ok", "pages": 1, "cursors": [null] }
+  },
+  {
+    "name": "backfill keeps continuity unproven, even when history is exhausted",
+    "call": { "kind": "backfill", "gap": { "reason": "disconnect", "after": 10, "through": null } },
+    "replies": [{ "next": "a" }, { "next": "" }],
+    "expect": {
+      "outcome": "ok",
+      "pages": 2,
+      "cursors": [null, "a"],
+      "history_exhausted": [false, true],
+      "continuity": "unproven"
+    }
+  }
+]

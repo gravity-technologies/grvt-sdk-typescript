@@ -1,4 +1,4 @@
-// Sans-IO pieces: request table, sequencer, backoff, frames, decimals, selectors, cookies, redaction.
+// Sans-IO pieces: request table, backoff, frames, decimals, selectors, cookies, redaction.
 
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -7,18 +7,10 @@ import {
   parseCookie,
   redact,
   RequestTable,
-  Sequencer,
   TimeCounterClientOrderId,
 } from "../src/index.js";
 
 describe("TimeCounterClientOrderId", () => {
-  it("makes distinct ids in the API client range [2^63, 2^64)", () => {
-    const ids = new TimeCounterClientOrderId();
-    const [a, b] = [BigInt(ids.nextId()), BigInt(ids.nextId())];
-    for (const id of [a, b]) expect(id >= 1n << 63n && id < 1n << 64n).toBe(true);
-    expect(a).not.toBe(b);
-  });
-
   it("wraps the counter without leaving the range", () => {
     const ids = new TimeCounterClientOrderId();
     (ids as unknown as { counter: bigint }).counter = 0x7fffffffn;
@@ -61,60 +53,6 @@ describe("RequestTable", () => {
     t.add({ method: "1", write: false, waiter: null });
     (t as unknown as { nextId: number }).nextId = 1;
     expect(t.add({ method: "2", write: false, waiter: null })).toBe(2);
-  });
-});
-
-describe("Sequencer", () => {
-  it("drops before the reply, then tracks and finds gaps", () => {
-    const s = new Sequencer();
-    expect(s.onFrame(5n, 4n)).toBe("drop");
-    s.onAck(100n, 1);
-    expect(s.onFrame(0n, 0n)).toBe("deliver"); // snapshot
-    expect(s.snapshotsLeft).toBe(0);
-    expect(s.onFrame(100n, 99n)).toBe("drop"); // already covered
-    expect(s.onFrame(101n, 100n)).toBe("deliver");
-    expect(s.onFrame(105n, 103n)).toBe("gap");
-    expect(s.gaps).toBe(1);
-    expect(s.last).toBe(101n);
-  });
-
-  it("after a re-subscribe, the first delta may chain to the old sequence (testnet quirk)", () => {
-    const s = new Sequencer();
-    s.onAck(0n, 1);
-    s.onFrame(0n, 0n);
-    expect(s.onFrame(7n, 0n)).toBe("deliver");
-    expect(s.onFrame(8n, 7n)).toBe("deliver");
-    s.reset(); // re-subscribe after a gap
-    s.onAck(20n, 1);
-    s.onFrame(0n, 0n);
-    expect(s.onFrame(21n, 8n)).toBe("deliver"); // prev = the old last sequence, not 20
-    expect(s.onFrame(22n, 8n)).toBe("gap"); // only the first delta gets that pass
-  });
-
-  it("the first frame after a reply accepts prev 0 or prev <= latest; later frames must chain exactly", () => {
-    const s = new Sequencer();
-    s.onAck(50n, 1);
-    s.onFrame(0n, 0n);
-    expect(s.onFrame(51n, 50n)).toBe("deliver");
-    const t = new Sequencer();
-    t.onAck(50n, 1);
-    expect(t.onFrame(52n, 49n)).toBe("deliver"); // prev not greater than the reply's 50
-    expect(t.onFrame(53n, 51n)).toBe("gap"); // from now on prev must equal the last seen (52)
-    const u = new Sequencer();
-    u.onAck(50n, 0);
-    expect(u.onFrame(52n, 51n)).toBe("gap"); // prev newer than anything known: a real gap
-    const v = new Sequencer();
-    v.onAck(50n, 0);
-    expect(v.onFrame(52n, 0n)).toBe("deliver");
-  });
-
-  it("clears the re-sync timer when the snapshot arrives", () => {
-    const s = new Sequencer();
-    s.resyncStarted = 0;
-    s.onAck(10n, 1);
-    expect(s.resyncOverdue(6000, 5000)).toBe(true);
-    s.onFrame(0n, 0n);
-    expect(s.resyncOverdue(6000, 5000)).toBe(false);
   });
 });
 

@@ -16,7 +16,15 @@
       { "status": "$read_retry_statuses.1", "body": { "code": 1003, "message": "unavailable" } },
       { "status": 200, "body": { "result": { "instrument": "BTC_USDT_Perp" } } }
     ],
-    "expect": { "outcome": "ok", "attempts": 3, "retries": 2 }
+    "expect": {
+      "outcome": "ok",
+      "attempts": 3,
+      "retries": 2,
+      "events": [
+        { "kind": "retry", "rpc": "v1/ticker", "attempt": 1 },
+        { "kind": "retry", "rpc": "v1/ticker", "attempt": 2 }
+      ]
+    }
   },
   {
     "name": "read retries the third retry status whatever the code",
@@ -264,6 +272,30 @@
     }
   },
   {
+    "name": "bulk write whose connection drops after sending is unknown for every order",
+    "call": { "kind": "write", "bulk": true },
+    "replies": [{ "drop": true }],
+    "expect": { "outcome": "order_state_unknown", "rpc": "v2/bulk_orders", "attempts": 1, "sent_client_order_id": "generated" }
+  },
+  {
+    "name": "ws bulk write without a reply within the request timeout is unknown for every order",
+    "call": { "kind": "write", "bulk": true, "transport": "ws", "ws_request_timeout_ms": 200 },
+    "replies": [{ "hang": true }],
+    "expect": { "outcome": "order_state_unknown", "rpc": "v2/bulk_orders", "attempts": 1, "sent_client_order_id": "generated" }
+  },
+  {
+    "name": "write without an API key fails before sending",
+    "call": { "kind": "write", "client_order_id": "9223372036854775808", "api_key": false },
+    "replies": [],
+    "expect": { "outcome": "config_error", "attempts": 0 }
+  },
+  {
+    "name": "order off its instrument's tick is refused before sending",
+    "call": { "kind": "write", "client_order_id": "9223372036854775808", "off_tick": true },
+    "replies": [],
+    "expect": { "outcome": "order_out_of_bounds", "attempts": 0 }
+  },
+  {
     "name": "countdown accepts the smallest duration with one write",
     "call": { "kind": "countdown", "seconds": "$countdown_min_seconds" },
     "replies": [{ "status": 200, "body": { "result": { "ack": true } } }],
@@ -298,12 +330,13 @@
     }
   },
   {
-    "name": "delta stream gap reports open bounds, re-subscribes and resumes from a snapshot",
-    "call": { "kind": "stream", "stream": "v1.ticker.d" },
+    "name": "delta stream gap reports open bounds, re-subscribes and resumes from a snapshot, which ends the resync wait (sleeps past the resync timeout plus one watchdog tick)",
+    "call": { "kind": "stream", "stream": "v1.ticker.d", "resync_timeout_ms": 300 },
     "steps": [
       { "push": [101, 100] },
       { "push": [105, 103] },
       { "wait_acks": 2 },
+      { "sleep_ms": "$watchdog_interval+300" },
       { "push": [106, 105] }
     ],
     "expect": {
@@ -323,12 +356,13 @@
     }
   },
   {
-    "name": "no snapshot within the resync timeout reconnects",
+    "name": "no snapshot within the resync timeout reconnects; frames before the reply are dropped",
     "call": { "kind": "stream", "stream": "v1.ticker.d", "resync_timeout_ms": 300 },
     "steps": [
       { "push": [101, 100] },
       { "ignore_subscribes": 1 },
       { "push": [110, 108] },
+      { "push": [111, 110] },
       { "wait_reconnects": 1 },
       { "wait_acks": 2 }
     ],
@@ -355,6 +389,36 @@
       "items": [0, 101, 0, 102],
       "gaps": [{ "reason": "disconnect", "after": 101, "through": null }],
       "subscribes": 2
+    }
+  },
+  {
+    "name": "silent connection is dropped after the idle timeout and re-subscribes",
+    "call": { "kind": "stream", "stream": "v1.ticker.d", "idle_timeout_ms": 1000 },
+    "steps": [
+      { "push": [101, 100] },
+      { "silence": true },
+      { "wait_reconnects": 1 },
+      { "wait_acks": 2 },
+      { "push": [102, 101] }
+    ],
+    "expect": {
+      "items": [0, 101, 0, 102],
+      "gaps": [{ "reason": "disconnect", "after": 101, "through": null }],
+      "subscribes": 2
+    }
+  },
+  {
+    "name": "quiet connection that answers pings stays up past the idle timeout",
+    "call": { "kind": "stream", "stream": "v1.ticker.d", "idle_timeout_ms": 1000 },
+    "steps": [
+      { "push": [101, 100] },
+      { "sleep_ms": 1500 },
+      { "push": [102, 101] }
+    ],
+    "expect": {
+      "items": [0, 101, 102],
+      "gaps": [],
+      "subscribes": 1
     }
   },
   {
@@ -387,6 +451,32 @@
     "call": { "kind": "stream", "stream": "v1.ticker.d" },
     "steps": [{ "push": [101, 100] }, { "push": [102, 101] }, { "push": [102, 101] }, { "push": [103, 102] }],
     "expect": { "items": [0, 101, 102, 103], "gaps": [], "subscribes": 1 }
+  },
+  {
+    "name": "sequence numbers are sparse: a delta chains to the last one by prev",
+    "call": { "kind": "stream", "stream": "v1.ticker.d" },
+    "steps": [{ "push": [100, 99] }, { "push": [101, 100] }, { "push": [150, 101] }],
+    "expect": { "items": [0, 101, 150], "gaps": [], "subscribes": 1 }
+  },
+  {
+    "name": "only the first delta after a subscribe may chain to an older sequence",
+    "call": { "kind": "stream", "stream": "v1.ticker.d" },
+    "steps": [{ "push": [101, 90] }, { "push": [103, 90] }, { "wait_acks": 2 }],
+    "expect": {
+      "items": [0, 101, 0],
+      "gaps": [{ "reason": "sequence_mismatch", "after": 101, "through": null, "frame": [103, 90] }],
+      "subscribes": 2
+    }
+  },
+  {
+    "name": "a first delta that chains to a sequence newer than the subscribe reply is a gap",
+    "call": { "kind": "stream", "stream": "v1.ticker.d" },
+    "steps": [{ "push": [102, 101] }, { "wait_acks": 2 }],
+    "expect": {
+      "items": [0, 0],
+      "gaps": [{ "reason": "sequence_mismatch", "after": 100, "through": null, "frame": [102, 101] }],
+      "subscribes": 2
+    }
   },
   {
     "name": "first delta after a gap re-subscribe may chain to the sequence before it",

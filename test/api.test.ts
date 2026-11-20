@@ -6,7 +6,7 @@ import { loadShared } from "./shared.js";
 import { describe, expect, it } from "vitest";
 import { ConfigError, Grvt, SigningError, specs } from "../src/index.js";
 import { fixture } from "./fixtures.js";
-import { FakeHttp, FULL } from "./fakes.js";
+import { ENCODINGS, FakeHttp } from "./fakes.js";
 
 const contract = loadShared("contract/contract.json");
 const types = new Map<string, any>(
@@ -56,11 +56,12 @@ describe("generated API", () => {
     ]);
   });
 
-  it("every RPC is reachable with its required fields", async () => {
-    const http = new FakeHttp();
-    const client = new Grvt({ ...FULL, apiKey: "k", http });
+  it.each(ENCODINGS)("every RPC is reachable with its required fields (%s)", async (encoding) => {
+    const http = new FakeHttp({ lite: encoding === "lite" });
+    const client = new Grvt({ encoding, apiKey: "k", http });
     let reached = 0;
     for (const op of ops.filter((o) => o.kind !== "stream")) {
+      http.calls.length = 0;
       const route =
         contract.rpcs.find((r: any) => r.id === op.id) ??
         contract.edge.routes.find((r: any) => r.id === op.id);
@@ -72,7 +73,8 @@ describe("generated API", () => {
       // calls, and per-element bindings with no elements (a pure bulk cancel), reach the gateway.
       const stopsAtSigning = Boolean(route.signs && !route.signs.field.endsWith("[]"));
       const outcome = await p.then(
-        () => (http.calls.at(-1)!.url.endsWith(rpcSpecs.get(op.id)!.path) ? "sent" : "wrong url"),
+        // callsTo matches the lite path too; the fake reports a call in the wrong encoding.
+        () => (http.callsTo(rpcSpecs.get(op.id)!.path).length === 1 ? "sent" : "wrong url"),
         (e: unknown) =>
           e instanceof ConfigError || e instanceof SigningError ? "stopped at signing" : String(e),
       );
@@ -83,6 +85,7 @@ describe("generated API", () => {
       reached++;
     }
     expect(reached).toBe(contract.rpcs.length);
+    expect(http.violations).toEqual([]);
   });
 
   it("every stream builds its selector without touching the network", () => {

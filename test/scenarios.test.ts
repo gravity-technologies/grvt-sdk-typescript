@@ -8,11 +8,13 @@ import { Decimal } from "../src/runtime/scalars.js";
 import {
   ApiError,
   backfillPages,
+  ConfigError,
   DecodeError,
   type Event,
   type GapRange,
   Grvt,
   type models as m,
+  OrderOutOfBounds,
   OrderStateUnknown,
   pages,
   PaginationCycle,
@@ -58,9 +60,13 @@ interface Scenario {
     transport?: "ws";
     stream?: string;
     client_order_id?: string;
+    bulk?: boolean;
+    api_key?: false;
+    off_tick?: boolean;
     seconds?: number;
     ws_request_timeout_ms?: number;
     resync_timeout_ms?: number;
+    idle_timeout_ms?: number;
     instruments?: string[];
     queue_size?: number;
     cookie_max_age_s?: number;
@@ -72,6 +78,8 @@ interface Scenario {
     push?: [number, number];
     feed?: { value: unknown };
     drop?: boolean;
+    silence?: boolean;
+    sleep_ms?: number;
     ignore_subscribes?: number;
     ack_latest?: number;
     wait_acks?: number;
@@ -87,6 +95,7 @@ interface Scenario {
     sent?: boolean;
     attempts?: number;
     retries?: number;
+    events?: { kind: string; rpc?: string; attempt?: number }[];
     client_order_ids?: string[];
     sent_client_order_id?: string;
     items?: (number | string)[];
@@ -109,40 +118,22 @@ interface Scenario {
   skip?: Record<string, string>;
 }
 
-const behavior = loadShared("contract/behavior.json") as Record<string, { value: unknown }>;
-
-/** Replaces every "$key", "$key.index", "$key*n" and "$key+n" string with the value from behavior.json. */
-function resolve(v: unknown): unknown {
-  if (Array.isArray(v)) return v.map(resolve);
-  if (v && typeof v === "object")
-    return Object.fromEntries(Object.entries(v).map(([k, e]) => [k, resolve(e)]));
-  const ref =
-    typeof v === "string" ? /^\$([a-z_]+)(?:\.(\d+))?(?:\*(\d+))?([+-]\d+)?$/.exec(v) : null;
-  if (!ref) return v;
-  const entry = behavior[ref[1]!];
-  if (!entry) throw new Error(`unknown behavior key ${ref[1]}`);
-  let value = entry.value;
-  if (ref[2] !== undefined) value = (value as unknown[])[Number(ref[2])];
-  if (ref[3] !== undefined) value = (value as number) * Number(ref[3]);
-  if (ref[4] !== undefined) value = (value as number) + Number(ref[4]);
-  return value;
-}
-
-const scenarios = resolve(loadShared("scenarios/runtime.json")) as Scenario[];
+// runtime.json with its behavior.json references already replaced by their values (sdk/generator/scenarios).
+const scenarios = loadShared("scenarios/runtime.resolved.json") as Scenario[];
 const KEY = "0xbfe25ff07bd38cb3fbc28a2a296d41aabd68a78c929d257935906489fc9c6d89";
 const clients: Grvt[] = [];
 afterEach(async () => {
   await Promise.all(clients.splice(0).map((c) => c.close()));
 });
 
-const order = (clientOrderId?: string): m.OrderInput => ({
+const order = (clientOrderId?: string, offTick = false): m.OrderInput => ({
   sub_account_id: "8289849667772468",
   time_in_force: "GOOD_TILL_TIME",
   legs: [
     {
       instrument: "BTC_USDT_Perp",
       size: new Decimal("0.01"),
-      limit_price: new Decimal("65000.1"),
+      limit_price: new Decimal(offTick ? "65000.15" : "65000.1"),
       is_buying_asset: true,
     },
   ],
@@ -162,6 +153,8 @@ function outcome(err: unknown): string {
   if (err instanceof RateLimitError) return "rate_limited";
   if (err instanceof ApiError) return "api_error";
   if (err instanceof TransportError) return "transport_error";
+  if (err instanceof ConfigError) return "config_error";
+  if (err instanceof OrderOutOfBounds) return "order_out_of_bounds";
   if (err instanceof RangeError) return "validation_error";
   return `unexpected ${String(err)}`;
 }
@@ -176,7 +169,7 @@ async function runCall(sc: Scenario, lite: boolean): Promise<void> {
     webSocket: gw.factory,
     http,
     onEvent: (e) => events.push(e),
-    apiKey: "k",
+    apiKey: sc.call.api_key === false ? undefined : "k",
     signer: new PrivateKeySigner(KEY),
     encoding: lite ? "lite" : "full",
     ...(ws ? { orderTransport: "ws" as const } : {}),
@@ -186,18 +179,20 @@ async function runCall(sc: Scenario, lite: boolean): Promise<void> {
   c.runtime.metadata.putInstrument("BTC_USDT_Perp", {
     instrument_hash: "0x030501",
     base_decimals: 9,
+    limits: { tick_size: "0.1", min_size: "0.001", min_notional: "1" },
   });
   const replies = sc.replies ?? [];
+  const rpc = sc.call.bulk ? "v2/bulk_orders" : "v1/create_order";
   const path = {
     read: "/full/v1/ticker",
-    write: "/full/v1/create_order",
+    write: `/full/${rpc}`,
     countdown: "/full/v1/cancel_on_disconnect",
   }[sc.call.kind as "read"];
   if (!ws && replies.length) http.on(path, ...replies.map(httpReply));
 
   const reply = replies[0];
   if (ws) {
-    gw.ignoreRpcs.add("v1/create_order");
+    gw.ignoreRpcs.add(rpc);
     if (reply?.refuse || reply?.send_fails) {
       // Open the socket with a read first, then break it the way the reply says.
       await c.runtime.td.request("v1/instrument", "{}", false);
@@ -215,15 +210,17 @@ async function runCall(sc: Scenario, lite: boolean): Promise<void> {
   let call: Promise<unknown>;
   if (sc.call.kind === "read") call = c.ticker({ instrument: "BTC_USDT_Perp" });
   else if (sc.call.kind === "countdown") call = refreshCancelCountdown(c, "123", sc.call.seconds!);
-  else call = c.createOrder({ order: order(sc.call.client_order_id) });
+  else if (sc.call.bulk)
+    call = c.bulkOrders({ sub_account_id: "8289849667772468", orders: [order(), order()] });
+  else call = c.createOrder({ order: order(sc.call.client_order_id, sc.call.off_tick) });
   const settled = call.then(
     () => undefined,
     (e: unknown) => e,
   );
 
   if (ws && reply && !reply.refuse && !reply.send_fails) {
-    await waitUntil("write sent", () => gw.rpcs("v1/create_order").length === 1);
-    const request = gw.rpcs("v1/create_order")[0];
+    await waitUntil("write sent", () => gw.rpcs(rpc).length === 1);
+    const request = gw.rpcs(rpc)[0];
     if (reply.drop) gw.dropAll();
     else if (reply.error !== undefined)
       gw.open()[0]!.deliver({ id: request.id, error: reply.error });
@@ -238,23 +235,38 @@ async function runCall(sc: Scenario, lite: boolean): Promise<void> {
   if (want.rpc !== undefined) expect((err as OrderStateUnknown).rpc).toBe(want.rpc);
   if (want.retries !== undefined)
     expect(events.filter((e) => e.type === "retry")).toHaveLength(want.retries);
+  if (want.events) {
+    // Every event but frames, in order; each entry checks its kind and only the fields it lists.
+    const got = events
+      .filter((e) => e.type !== "frame")
+      .map((e, i) => {
+        const w = want.events![i] ?? {};
+        const r = e as { rpc?: string; attempt?: number };
+        return {
+          kind: e.type,
+          ...("rpc" in w ? { rpc: r.rpc } : {}),
+          ...("attempt" in w ? { attempt: r.attempt } : {}),
+        };
+      });
+    expect(got).toEqual(want.events);
+  }
   if (want.outcome === "transport_error" && want.sent !== undefined)
     expect((err as TransportError).sent).toBe(want.sent);
   if (want.outcome === "order_state_unknown" && want.client_order_ids)
     expect([...(err as OrderStateUnknown).clientOrderIds]).toEqual(want.client_order_ids);
   const sent = ws
-    ? gw.rpcs("v1/create_order").map((r) => r.params)
+    ? gw.rpcs(rpc).map((r) => r.params)
     : http.callsTo(path).map((r) => JSON.parse(r.body || "{}"));
   if (want.attempts !== undefined) expect(sent).toHaveLength(want.attempts);
+  // The client order IDs of each request, in order: one per order, two for a bulk write.
+  const ids = (body: any): string[] =>
+    (body.orders ?? [body.order]).map((o: any) => o.metadata.client_order_id);
   if (want.outcome === "order_state_unknown")
-    expect([...(err as OrderStateUnknown).clientOrderIds]).toEqual([
-      sent.at(-1).order.metadata.client_order_id,
-    ]);
+    expect([...(err as OrderStateUnknown).clientOrderIds]).toEqual(ids(sent.at(-1)));
   if (want.sent_client_order_id === "generated") {
-    const id = BigInt(sent[0].order.metadata.client_order_id);
-    expect(id >= 1n << 63n && id < 1n << 64n).toBe(true);
+    for (const id of ids(sent[0]).map(BigInt)) expect(id >= 1n << 63n && id < 1n << 64n).toBe(true);
   } else if (want.sent_client_order_id !== undefined) {
-    expect(sent[0].order.metadata.client_order_id).toBe(want.sent_client_order_id);
+    expect(ids(sent[0])).toEqual([want.sent_client_order_id]);
   }
   expect([...gw.violations, ...http.violations]).toEqual([]);
 }
@@ -282,6 +294,7 @@ async function runStream(sc: Scenario, lite: boolean): Promise<void> {
     encoding: lite ? "lite" : "full",
     onEvent: (e) => e.type !== "frame" && events.push(e),
     ...(sc.call.resync_timeout_ms ? { resyncTimeoutMs: sc.call.resync_timeout_ms } : {}),
+    ...(sc.call.idle_timeout_ms ? { idleTimeoutMs: sc.call.idle_timeout_ms } : {}),
     ...(sc.call.queue_size ? { queueSize: sc.call.queue_size } : {}),
   });
   clients.push(c);
@@ -308,6 +321,8 @@ async function runStream(sc: Scenario, lite: boolean): Promise<void> {
         ...(step.feed ? [step.feed.value] : []),
       );
     else if (step.drop) gw.dropAll();
+    else if (step.silence) gw.silence();
+    else if (step.sleep_ms) await new Promise((r) => setTimeout(r, step.sleep_ms));
     else if (step.ignore_subscribes) gw.ignoreSubscribes = step.ignore_subscribes;
     else if (step.ack_latest) gw.ackLatest = String(step.ack_latest);
     else if (step.wait_acks)

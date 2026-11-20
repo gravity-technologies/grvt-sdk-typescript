@@ -83,10 +83,15 @@ export interface ClientOptions {
   callTimeoutMs?: number;
   /** WS request and subscribe-reply timeout (default 5s). */
   wsRequestTimeoutMs?: number;
-  /** Per-subscription queue bound (default 4096). */
+  /** Bound on each subscription's queue (default 4096). */
   queueSize?: number;
   /** After a gap re-subscribe, reconnect if no snapshot came within this (default 5s). */
   resyncTimeoutMs?: number;
+  /**
+   * Drop and reconnect a WebSocket that received no frame at all, not even a ping or pong, for this long
+   * (default 30s). Applies only where the WebSocket shows ping frames (see `WebSocketLike.onheartbeat`).
+   */
+  idleTimeoutMs?: number;
 }
 
 /** Per-call options. */
@@ -95,11 +100,6 @@ export interface CallOptions {
   timeoutMs?: number;
   /** Native cancellation. A dispatched write becomes OrderStateUnknown. */
   signal?: AbortSignal;
-}
-
-export interface StreamOptions {
-  /** Override the client's per-subscription queue bound. */
-  queueSize?: number;
 }
 
 /** The generated tables the runtime needs. */
@@ -168,6 +168,7 @@ function cached<T>(m: Map<string, Promise<T>>, key: string, load: () => Promise<
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 const MAX_TIMER_MS = 2 ** 31 - 1;
 
 export class Runtime {
@@ -241,10 +242,13 @@ export class Runtime {
       this.callTimeoutMs,
       options.wsRequestTimeoutMs ?? behavior.WS_REQUEST_TIMEOUT_MS,
       options.resyncTimeoutMs ?? behavior.RESYNC_TIMEOUT_MS,
+      options.idleTimeoutMs ?? behavior.WS_IDLE_TIMEOUT_MS,
     ])
       if (!Number.isFinite(value) || value <= 0)
         throw new ConfigError("timeouts must be finite and positive");
     this.queueSize = options.queueSize ?? behavior.QUEUE_SIZE;
+    if (!Number.isInteger(this.queueSize) || this.queueSize < behavior.QUEUE_SIZE_MIN)
+      throw new ConfigError(`queueSize must be an integer of at least ${behavior.QUEUE_SIZE_MIN}`);
     this.session = new Session(
       options.apiKey,
       this.env.edgeUrl + LOGIN_PATH,
@@ -256,6 +260,7 @@ export class Runtime {
     const wsOpts = {
       requestTimeoutMs: options.wsRequestTimeoutMs ?? behavior.WS_REQUEST_TIMEOUT_MS,
       resyncTimeoutMs: options.resyncTimeoutMs ?? behavior.RESYNC_TIMEOUT_MS,
+      idleTimeoutMs: options.idleTimeoutMs ?? behavior.WS_IDLE_TIMEOUT_MS,
       maxFrameBytes: this.env.wsMaxFrameBytes,
       factory: options.webSocket ?? defaultWebSocketFactory,
       lite: this.lite,
@@ -350,38 +355,42 @@ export class Runtime {
         throw new ConfigError(`${spec.method}: ${f} is required`);
     }
     let params = (spec.encode ? spec.encode(given) : toWire(given)) as Record<string, unknown>;
-    if (spec.clientOrderId) this.fillClientOrderId(params, spec.clientOrderId);
+    const field = spec.clientOrderId;
+    const clientOrderId = field ? this.fillClientOrderId(params, field) : undefined;
     const via = spec.orderEntry && this.orderTransport === "ws" ? "ws" : "rest";
     const hook = this.hooks.beforeSend;
     if (hook) {
       const call = { rpc: spec.method, params, transport: via } as const;
       const out = hook(call);
       params = out && typeof out === "object" ? out : call.params;
+      // The IDs are how an unknown outcome is looked up, so they must be the ones the caller knows.
+      // An id the hook removed is filled again with a new one, which fails here too.
+      if (
+        field &&
+        JSON.stringify(this.fillClientOrderId(params, field)) !== JSON.stringify(clientOrderId)
+      )
+        throw new ConfigError(
+          `${spec.method}: beforeSend must not add, remove or reorder orders, or change their client order IDs`,
+        );
     }
     deadline.check();
     if (sign) params = await deadline.wait(sign(this, params)); // nothing may change the request after this line
     deadline.check();
     let body = JSON.stringify(params);
-    const final = JSON.parse(body);
-    const orders = spec.clientOrderId ? final[spec.clientOrderId] : undefined;
-    const clientOrderId = (Array.isArray(orders) ? orders : orders ? [orders] : []).flatMap(
-      (order: any) =>
-        order.metadata?.client_order_id == null ? [] : [String(order.metadata.client_order_id)],
-    );
     // Lite: the same request with lite names (the edge has no lite form).
     let lite: { codec: LiteCodec; path: string; response: string } | undefined;
     if (this.lite && spec.gateway !== "edge") {
       const codec = await deadline.wait(this.lite());
       deadline.check();
       const [path, request, response] = codec.rpc(spec.id);
-      body = JSON.stringify(codec.toLite(final, request));
+      body = JSON.stringify(codec.toLite(JSON.parse(body), request));
       lite = { codec, path, response };
     }
     try {
       let response: unknown = await this.send<Resp>(spec, via, body, deadline, clientOrderId, lite);
       try {
         if (!response || typeof response !== "object" || Array.isArray(response))
-          throw new DecodeError(`${spec.method}: expected a response object`);
+          throw new DecodeError(spec.method, "expected a response object");
         if (lite) response = lite.codec.toFull(response, lite.response);
         return (spec.decode ? spec.decode(response) : response) as Resp;
       } catch (e) {
@@ -389,7 +398,7 @@ export class Runtime {
         const error =
           e instanceof DecodeError
             ? e
-            : new DecodeError(`${spec.method}: cannot decode response: ${(e as Error).message}`, {
+            : new DecodeError(spec.method, `cannot decode response: ${(e as Error).message}`, {
                 cause: e,
               });
         if (spec.write)
@@ -451,7 +460,8 @@ export class Runtime {
       return JSON.parse(text) as Resp;
     } catch (e) {
       const error = new DecodeError(
-        `${spec.method}: cannot decode response: ${(e as Error).message}`,
+        spec.method,
+        `cannot decode response: ${(e as Error).message}`,
         { cause: e },
       );
       if (spec.write) throw new OrderStateUnknown(spec.method, error.message, clientOrderId, error);
@@ -481,11 +491,7 @@ export class Runtime {
   // -- streams ------------------------------------------------------------------------------
 
   /** A subscription for `selector` (wire field names). Nothing is sent until it is iterated. */
-  stream<F>(
-    spec: StreamSpec,
-    sel: Record<string, unknown> | undefined,
-    options?: StreamOptions,
-  ): Subscription<F> {
+  stream<F>(spec: StreamSpec, sel: Record<string, unknown> | undefined): Subscription<F> {
     const s = { ...(sel ?? {}) };
     if (spec.primary.some((f) => f.name === "sub_account_id" && f.required))
       s.sub_account_id = this.account(s.sub_account_id);
@@ -498,7 +504,7 @@ export class Runtime {
       });
     const text = selector(pick(spec.primary), pick(spec.secondary));
     const socket = this.socket(spec.gateway);
-    const sub = socket.newSub(spec, text, options?.queueSize ?? this.queueSize);
+    const sub = socket.newSub(spec, text, this.queueSize);
     return new Subscription<F>(socket, sub, async () => {
       if (spec.auth) await this.ensureSession();
     });
@@ -535,7 +541,11 @@ export class Runtime {
 
   private scheduleRotation(minMs: number): void {
     if (this.rotation !== undefined || this.closed) return;
-    const due = Math.max(minMs, 1000, (this.session.refreshDue - Date.now() / 1000) * 1000);
+    const due = Math.max(
+      minMs,
+      behavior.SESSION_RENEW_MIN_WAIT_MS,
+      (this.session.refreshDue - Date.now() / 1000) * 1000,
+    );
     this.rotation = setTimeout(
       async () => {
         let retryMs = 0;

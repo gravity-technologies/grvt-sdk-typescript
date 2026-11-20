@@ -20,7 +20,7 @@ behaviour, idiomatic names.
 
 ## Build from source
 
-Needs Node 22 or newer and the repository's Go toolchain. From the repository root:
+Needs Node 24 or newer and the repository's Go toolchain. From the repository root:
 
 ```sh
 make sdk-gen-typescript
@@ -66,7 +66,11 @@ npm run bench
 ```
 
 Trading needs `GRVT_API_KEY`, `GRVT_PRIVATE_KEY` and `GRVT_SUB_ACCOUNT_ID`. The order can fill before it is
-cancelled. `npm run example` compiles TypeScript before running JavaScript, so it works on Node 22.0.
+cancelled. `npm run example` compiles TypeScript before running JavaScript, so it works on Node 24.0.
+
+A test that talks to the fake gateway runs in both wire encodings (`ENCODINGS` in `test/fakes.ts`), because
+clients default to lite. In lite, the fakes record requests in full names (`body`, `received`) and as sent
+(`wire`), and list in `violations` any key the client sent that is not a lite name.
 
 `make sdk-check-ts` from the repository root runs the full CI check: lint, typecheck, tests, and a packed
 install that checks the package contents and runs the quickstart (`sdk/scripts/check-quickstarts.py`).
@@ -96,8 +100,8 @@ The npm package holds `dist`, README.md, RUNTIME_API.md and LICENSE, not the exa
 - **Rejected handshakes.** The global `WebSocket` hides the HTTP status, so a 401/403 handshake is retried with
   backoff (a failed api-key login still stops it). A `webSocket` factory that knows the status can set
   `status` on the close event; the test fake gateway does.
-- **No heartbeat.** The global `WebSocket` has no ping API and hides the server's pings. Python and Rust ping
-  every 10s and drop a socket after 30s without frames.
+- **No heartbeat.** The global `WebSocket` has no ping API and hides the server's pings. The other SDKs ping
+  every third of `ws_idle_timeout` and drop a socket after `ws_idle_timeout` without frames.
 
 ## Open TODOs
 
@@ -106,5 +110,6 @@ The npm package holds `dist`, README.md, RUNTIME_API.md and LICENSE, not the exa
 - Frame-size check: it exists but is off, because `Environment.wsMaxFrameBytes` is unset for the named
   environments. When set, an oversized frame throws `FrameTooLarge` and nothing is sent. A REST fallback is
   not built.
-- Private-stream resume waits on server support.
+- What users can't do yet (private-stream resume, browser sessions, a heartbeat, ...) is listed in
+  [Not supported yet](https://developers.grvt.io/sdks/typescript#not-supported-yet); keep it there.
 - The package is not published to npm; the name `grvt` is a placeholder. There are no Bazel BUILD files.
