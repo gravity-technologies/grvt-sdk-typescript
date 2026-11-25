@@ -1,12 +1,6 @@
-// Order checks: instrument limits (tick, minimum size, size step, minimum notional) checked before signing.
-//
-// The rules come from the contract (`order_checks`) through the generated ORDER_CHECKS table; this module
-// only applies them. Values are compared as exact integers, scaled like the signed fields. Nothing is ever
-// rounded or changed: a failing order throws OrderOutOfBounds, with the nearest valid values.
-
 import { DecimalError, OrderOutOfBounds, SigningError } from "../errors.js";
 import { scaleDecimal } from "./wire.js";
-import type { Meta } from "./wire.js";
+import type { InstrumentMeta } from "./wire.js";
 
 /** One contract rule (see contract.json `order_checks.rules`). */
 export interface OrderCheckRule {
@@ -24,6 +18,18 @@ export interface OrderChecks {
   readonly instrument: string;
   readonly scales: Readonly<Record<string, number | "base_decimals">>;
   readonly rules: readonly OrderCheckRule[];
+}
+
+export interface OrderIssue {
+  readonly leg: number;
+  readonly field: string;
+  readonly error: SigningError | OrderOutOfBounds;
+}
+
+interface OrderMetadata {
+  instrument(
+    name: string | undefined,
+  ): Pick<InstrumentMeta, "base_decimals" | "limits"> | undefined;
 }
 
 const U64_MAX = (1n << 64n) - 1n;
@@ -50,34 +56,51 @@ function fmt(n: bigint, d: number): string {
 const ceilDiv = (a: bigint, b: bigint) => (a + b - 1n) / b;
 
 /** Throw OrderOutOfBounds for the first leg value outside its instrument's limits (SigningError when malformed). */
-export function checkOrder(
+export function checkOrder(checks: OrderChecks, order: unknown, meta: OrderMetadata): void {
+  if (!meta) throw new SigningError("checkOrder requires instrument metadata");
+  for (const issue of orderIssues(checks, order, meta)) {
+    throw issue.error;
+  }
+}
+
+/** Inspect each leg in order. Omit metadata to check fixed-scale fields only. */
+export function* orderIssues(
   checks: OrderChecks,
   order: unknown,
-  meta: Pick<Meta, "instrument">,
-): void {
+  meta?: OrderMetadata,
+): Generator<OrderIssue> {
   if (!order || typeof order !== "object") return;
   const legs = (order as Obj)[checks.legs];
   if (!Array.isArray(legs)) return;
-  legs.forEach((leg: Obj, index) => {
+  for (let index = 0; index < legs.length; index++) {
+    if (!(index in legs)) continue;
+    const leg = legs[index] as Obj;
     const name = leg[checks.instrument] as string | undefined;
-    const inst = meta.instrument(name);
-    const decimals = (field: string) => {
-      const s = checks.scales[field];
-      return s === "base_decimals" ? inst.base_decimals : (s as number);
-    };
-    const value = (field: string): bigint | undefined => {
+    const inst = meta?.instrument(name);
+    if (meta && !inst)
+      throw new SigningError(`no metadata for instrument ${JSON.stringify(name ?? "")}`);
+    if (inst && (!Number.isSafeInteger(inst.base_decimals) || inst.base_decimals < 0))
+      throw new SigningError(`invalid base_decimals for instrument ${JSON.stringify(name ?? "")}`);
+    const values = new Map<string, { value: bigint; decimals: number }>();
+    for (const [field, scale] of Object.entries(checks.scales)) {
+      const decimals = scale === "base_decimals" ? inst?.base_decimals : scale;
       const raw = leg[field];
-      if (raw === undefined || raw === null || raw === "") return undefined;
-      let n: bigint;
+      if (decimals === undefined || raw === undefined || raw === null || raw === "") continue;
       try {
-        n = scaleDecimal(String(raw), decimals(field));
-      } catch (e) {
-        throw e instanceof DecimalError ? e.withAt(`OrderLeg.${field}`) : e;
+        const value = scaleDecimal(String(raw), decimals);
+        if (value < 0n || value > U64_MAX)
+          throw new SigningError(`OrderLeg.${field}: ${String(raw)} is out of range`);
+        values.set(field, { value, decimals });
+      } catch (error) {
+        if (!(error instanceof SigningError)) throw error;
+        yield {
+          leg: index,
+          field,
+          error: error instanceof DecimalError ? error.withAt(`OrderLeg.${field}`) : error,
+        };
       }
-      if (n < 0n || n > U64_MAX)
-        throw new SigningError(`OrderLeg.${field}: ${String(raw)} is out of range`);
-      return n;
-    };
+    }
+    if (!inst?.limits) continue;
     const limit = (field: string, d: number): bigint => {
       const raw = inst.limits?.[field];
       if (raw === undefined || raw === "") return 0n;
@@ -89,18 +112,18 @@ export function checkOrder(
     };
     const skipped = (r: OrderCheckRule) => r.skipIf.some((p) => dig(order, p) === true);
 
-    for (const field of Object.keys(checks.scales)) value(field); // a malformed value is reported as such
     for (const rule of checks.rules) {
       if (skipped(rule)) continue;
-      let v = value(rule.field);
-      if (v === undefined) continue;
-      let d = decimals(rule.field);
+      const amount = values.get(rule.field);
+      if (!amount) continue;
+      let v = amount.value;
+      let d = amount.decimals;
       let label = rule.field;
       if (rule.times) {
-        const t = value(rule.times);
-        if (t === undefined || v === 0n || t === 0n) continue;
-        v *= t;
-        d += decimals(rule.times);
+        const t = values.get(rule.times);
+        if (!t || v === 0n || t.value === 0n) continue;
+        v *= t.value;
+        d += t.decimals;
         label = `${rule.field} * ${rule.times}`;
       }
       const lim = limit(rule.limit, d);
@@ -114,8 +137,8 @@ export function checkOrder(
           nearest = [lim];
           msg = `${label} ${fmt(v, d)} is below ${rule.limit} ${fmt(lim, d)}`;
         } else {
-          nd = decimals(rule.times);
-          let x = ceilDiv(lim, value(rule.field)!);
+          nd = values.get(rule.times)!.decimals;
+          let x = ceilDiv(lim, amount.value);
           for (const r2 of checks.rules) {
             if (r2.field !== rule.times || r2.times || skipped(r2)) continue;
             const l2 = limit(r2.limit, nd);
@@ -132,19 +155,23 @@ export function checkOrder(
         nearest = [lo, lo + lim].filter((n) => n > 0n);
         msg = `${label} ${fmt(v, d)} isn't a multiple of ${rule.limit} ${fmt(lim, d)} (nearest: ${nearest.map((n) => fmt(n, d)).join(" or ")})`;
       }
-      throw new OrderOutOfBounds(`${name}: ${msg}`, {
-        instrument: name ?? "",
+      yield {
         leg: index,
         field: label,
-        check: rule.check,
-        limit: rule.limit,
-        value: fmt(v, d),
-        limitValue: fmt(lim, d),
-        nearest: nearest.map((n) => fmt(n, nd)),
-        serverCode: rule.serverCode,
-      });
+        error: new OrderOutOfBounds(`${name}: ${msg}`, {
+          instrument: name ?? "",
+          leg: index,
+          field: label,
+          check: rule.check,
+          limit: rule.limit,
+          value: fmt(v, d),
+          limitValue: fmt(lim, d),
+          nearest: nearest.map((n) => fmt(n, nd)),
+          serverCode: rule.serverCode,
+        }),
+      };
     }
-  });
+  }
 }
 
 /** Every instrument named by a leg anywhere in a request. */

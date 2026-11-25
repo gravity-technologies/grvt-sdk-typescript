@@ -58,6 +58,19 @@ describe("shared behavior", () => {
     expect(DEFAULT_TTL_S * 1000).toBe(behavior.SESSION_DEFAULT_LIFETIME_MS);
   });
 
+  it("shares the default order ID provider across clients", async () => {
+    const a = new Grvt();
+    const b = new Grvt();
+    const custom = { nextId: () => "42" };
+    const c = new Grvt({ clientOrderIds: custom });
+    try {
+      expect(a.runtime.clientOrderIds).toBe(b.runtime.clientOrderIds);
+      expect(c.runtime.clientOrderIds).toBe(custom);
+    } finally {
+      await Promise.all([a.close(), b.close(), c.close()]);
+    }
+  });
+
   it("lays out client order ids", () => {
     const seconds = 1_700_000_000;
     vi.spyOn(Date, "now").mockReturnValue(seconds * 1000);

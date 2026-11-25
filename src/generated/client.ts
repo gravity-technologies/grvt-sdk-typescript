@@ -9,7 +9,7 @@ import { ERRORS } from "./errors.js";
 import { ENVIRONMENTS } from "./specs.js";
 
 /**
- * Grvt client. The options pick the environment ("testnet" default, "prod" or a custom Environment),
+ * Grvt client. The options pick the environment ("testnet" default, "production" or a custom Environment),
  * api key (logs in on the first authenticated call), signer (orders, transfers, withdrawals), order
  * transport ("rest" or "ws"), wire encoding ("lite" by default, or "full") and hooks. Call close() when done: open
  * sockets keep a Node process alive.

@@ -49,9 +49,11 @@ export {
 } from "./runtime.js";
 export {
   checkOrder,
+  orderIssues,
   legInstruments,
   type OrderCheckRule,
   type OrderChecks,
+  type OrderIssue,
 } from "./signing/checks.js";
 export {
   bytesToHex,

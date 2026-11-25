@@ -6,12 +6,15 @@ import { loadShared } from "./shared.js";
 import { describe, expect, it } from "vitest";
 import {
   bytesToHex,
+  checkOrder,
   domainSeparator,
   type Domain,
   FixedClock,
   Grvt,
   type Message,
+  type OrderIssue,
   OrderOutOfBounds,
+  orderIssues,
   PrivateKeySigner,
   type Signature,
   type Signer,
@@ -153,6 +156,60 @@ describe("signing cases", () => {
 });
 
 describe("order checks", () => {
+  it("reports independent field failures across legs", () => {
+    const order = {
+      legs: [
+        { instrument: "BTC", size: "invalid", limit_price: "1.15" },
+        { instrument: "BTC", size: "1", limit_price: "0.0000000001" },
+      ],
+    };
+    const issues: OrderIssue[] = [
+      ...orderIssues(signing.ORDER_CHECKS, order, {
+        instrument: () => ({ base_decimals: 9, limits: { tick_size: "0.1" } }),
+      }),
+    ];
+    expect(issues.map(({ leg, field, error }) => [leg, field, error.name])).toEqual([
+      [0, "size", "DecimalError"],
+      [0, "limit_price", "OrderOutOfBounds"],
+      [1, "limit_price", "DecimalError"],
+    ]);
+  });
+
+  it("checks only fixed-scale fields when orderIssues is called without metadata", () => {
+    const order = {
+      legs: [{ instrument: "unknown", size: "invalid", limit_price: "0.0000000001" }],
+    };
+    const issues = [...orderIssues(signing.ORDER_CHECKS, order)];
+    expect(issues.map(({ field, error }) => [field, error.name])).toEqual([
+      ["limit_price", "DecimalError"],
+    ]);
+    // @ts-expect-error JavaScript callers can omit this required argument.
+    expect(() => checkOrder(signing.ORDER_CHECKS, order)).toThrow(SigningError);
+  });
+
+  it("requires supplied metadata to resolve every leg", () => {
+    const order = { legs: [{ instrument: "unknown", size: "0.0005", limit_price: "65000.55" }] };
+    const missing = { instrument: () => undefined };
+    const checks = signing.ORDER_CHECKS;
+    for (const check of [
+      () => checkOrder(checks, order, missing),
+      () => [...orderIssues(checks, order, missing)],
+    ]) {
+      expect(check).toThrow(SigningError);
+      expect(check).toThrow('no metadata for instrument "unknown"');
+    }
+  });
+
+  it("rejects incomplete or invalid instrument scale from a custom metadata provider", () => {
+    const order = { legs: [{ instrument: "X", size: "garbage" }] };
+    for (const base_decimals of [undefined, -1, 1.5, NaN]) {
+      const meta = { instrument: () => ({ base_decimals: base_decimals as number }) };
+      expect(() => checkOrder(signing.ORDER_CHECKS, order, meta)).toThrow(
+        'invalid base_decimals for instrument "X"',
+      );
+    }
+  });
+
   // Every SDK must reach the same verdict, nearest values and message on the shared cases.
   function signOrder(vec: any): { out: Promise<unknown>; signer: RecordingSigner } {
     const signer = new RecordingSigner(new PrivateKeySigner(all.test_key.private_key));

@@ -53,7 +53,13 @@ describe("custom environment", () => {
     expect(() => new Grvt({ env: noChain as Environment })).toThrow("chainId");
   });
 
-  it("names only testnet and prod", () => {
-    expect(Object.keys(ENVIRONMENTS).sort()).toEqual(["prod", "testnet"]);
+  it("rejects inherited property names as unknown environments", () => {
+    for (const env of ["constructor", "__proto__", "toString"])
+      expect(() => new Grvt({ env })).toThrow(ConfigError);
+  });
+
+  it("names only testnet and production", () => {
+    expect(Object.keys(ENVIRONMENTS).sort()).toEqual(["production", "testnet"]);
+    expect(() => new Grvt({ env: "prod" })).toThrow(ConfigError);
   });
 });

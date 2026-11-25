@@ -26,15 +26,14 @@ function priceKey(value: Decimal): string {
     .replace(/(\.[0-9]*?)0+$/, "$1")
     .replace(/\.$/, "");
 }
-function compare(a: string, b: string): number {
-  const [ai, af = ""] = a.split(".");
-  const [bi, bf = ""] = b.split(".");
-  if (ai!.length !== bi!.length) return ai!.length - bi!.length;
-  if (ai !== bi) return ai! < bi! ? -1 : 1;
-  const width = Math.max(af.length, bf.length);
-  const x = af.padEnd(width, "0"),
-    y = bf.padEnd(width, "0");
-  return x === y ? 0 : x < y ? -1 : 1;
+function integerDigits(price: string): number {
+  const point = price.indexOf(".");
+  return point < 0 ? price.length : point;
+}
+
+// Positive prices with equal integer widths sort lexically once fractional trailing zeros are removed.
+function comparePrices(a: string, b: string): number {
+  return integerDigits(a) - integerDigits(b) || (a === b ? 0 : a < b ? -1 : 1);
 }
 function zero(value: Decimal): boolean {
   return /^-?0(?:\.0+)?$/.test(value.toString());
@@ -155,7 +154,7 @@ export class OrderBook {
     const sorted = (side: Map<string, OrderbookLevel>, direction: number) =>
       Object.freeze(
         [...side]
-          .sort(([a], [b]) => direction * compare(a, b))
+          .sort(([a], [b]) => direction * comparePrices(a, b))
           .map(([, v]) => Object.freeze({ ...v })),
       );
     return Object.freeze({

@@ -42,6 +42,8 @@ import { type CurrencyMeta, type InstrumentMeta, selector } from "./signing/wire
 import type { Gateway, RpcSpec, StreamSpec } from "./spec.js";
 import { defaultWebSocketFactory, Subscription, type WebSocketFactory, WsSocket } from "./ws.js";
 
+let defaultClientOrderIds: TimeCounterClientOrderId | undefined;
+
 /** How order-entry writes travel. Chosen once per client. */
 export type OrderTransport = "rest" | "ws";
 
@@ -51,7 +53,7 @@ export type Encoding = "full" | "lite";
 export interface ClientOptions {
   /** Default for omitted request and stream sub-account IDs. Explicit IDs win. */
   subAccountId?: string;
-  /** "testnet" (default), "prod", or your own Environment. */
+  /** "testnet" (default), "production", or your own Environment. */
   env?: string | Environment;
   /** Logs in on the first authenticated call. */
   apiKey?: string;
@@ -231,7 +233,8 @@ export class Runtime {
     this.checkOrders = options.checkOrders ?? true;
     this.clock = options.clock ?? new SystemClock();
     this.nonces = options.nonces ?? new RandomNonce();
-    this.clientOrderIds = options.clientOrderIds ?? new TimeCounterClientOrderId();
+    this.clientOrderIds =
+      options.clientOrderIds ?? (defaultClientOrderIds ??= new TimeCounterClientOrderId());
     this.http = options.http ?? new FetchTransport();
     this.hooks = new Hooks(options.beforeSend, options.onEvent);
     this.errors = new ErrorTable(tables.errors);

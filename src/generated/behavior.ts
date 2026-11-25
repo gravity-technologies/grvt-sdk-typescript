@@ -71,7 +71,8 @@ export const CLIENT_ORDER_ID_SECONDS_BITS = 32;
 // (1 << CLIENT_ORDER_ID_SECONDS_BITS) - 1.
 export const CLIENT_ORDER_ID_SECONDS_MASK = 0xffffffffn;
 
-// Width of the per-process counter in the low bits of a generated client order ID.
+// Width of the counter shared by default clients of the same loaded SDK, in the low bits of a
+// generated client order ID.
 export const CLIENT_ORDER_ID_COUNTER_BITS = 31;
 
 // (1 << CLIENT_ORDER_ID_COUNTER_BITS) - 1.

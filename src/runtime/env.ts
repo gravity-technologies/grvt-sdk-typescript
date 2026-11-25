@@ -38,14 +38,13 @@ export function resolveEnv(
   lite = false,
 ): Environment {
   if (typeof env !== "string") return validateEnv(env, lite);
-  const e = named[env];
-  if (!e)
+  if (!Object.hasOwn(named, env))
     throw new ConfigError(
       `unknown env ${JSON.stringify(env)}; use ${Object.keys(named)
         .map((k) => JSON.stringify(k))
         .join(" or ")} or pass an Environment`,
     );
-  return e;
+  return named[env]!;
 }
 
 /**

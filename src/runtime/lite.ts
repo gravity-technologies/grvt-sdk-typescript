@@ -39,8 +39,8 @@ export class LiteCodec {
   private readonly toLiteNames = new Map<string, Names>();
   private readonly frameKeys: Names;
   private readonly httpErrorKeys: Names;
-  /** Lite keys of the JSON-RPC request: jsonrpc, method, params, id. */
-  private readonly req: { jsonrpc: string; method: string; params: string; id: string };
+  /** JSON-quoted lite keys for the request envelope. */
+  private readonly requestKeys: { jsonrpc: string; method: string; params: string; id: string };
   /** Lite keys the socket checks before renaming a frame. */
   private readonly replyId: string;
   private readonly replyResult: string;
@@ -71,11 +71,12 @@ export class LiteCodec {
       if (k === undefined) throw new Error(`lite table: ${where} has no ${full}`);
       return k;
     };
-    this.req = {
-      jsonrpc: key(r, "jsonrpc", tables.request),
-      method: key(r, "method", tables.request),
-      params: key(r, "params", tables.request),
-      id: key(r, "id", tables.request),
+    const requestKey = (name: string) => JSON.stringify(key(r, name, tables.request));
+    this.requestKeys = {
+      jsonrpc: requestKey("jsonrpc"),
+      method: requestKey("method"),
+      params: requestKey("params"),
+      id: requestKey("id"),
     };
     const resp = this.toLiteNames.get(tables.response);
     this.replyId = key(resp, "id", tables.response);
@@ -105,8 +106,8 @@ export class LiteCodec {
 
   /** The JSON-RPC request text, params already encoded (lite). */
   frame(method: string, paramsJson: string, id: number): string {
-    const k = this.req;
-    return `{${JSON.stringify(k.jsonrpc)}:"2.0",${JSON.stringify(k.method)}:${JSON.stringify(method)},${JSON.stringify(k.params)}:${paramsJson},${JSON.stringify(k.id)}:${id}}`;
+    const k = this.requestKeys;
+    return `{${k.jsonrpc}:"2.0",${k.method}:${JSON.stringify(method)},${k.params}:${paramsJson},${k.id}:${id}}`;
   }
 
   /** Subscribe or unsubscribe params, as JSON text. */

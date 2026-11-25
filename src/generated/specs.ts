@@ -12,8 +12,8 @@ export const CONTRACT_VERSION = "0.1.0";
 
 /** Named environments (pass the name as the client's env). */
 export const ENVIRONMENTS: Readonly<Record<string, Environment>> = {
-  prod: {
-    name: "prod",
+  production: {
+    name: "production",
     mdUrl: "https://market-data.grvt.io",
     tdUrl: "https://trades.grvt.io",
     edgeUrl: "https://edge.grvt.io",

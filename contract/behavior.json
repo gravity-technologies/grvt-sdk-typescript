@@ -103,7 +103,7 @@
     "client_order_id_counter_bits": {
       "value": 31,
       "unit": "bits",
-      "meaning": "Width of the per-process counter in the low bits of a generated client order ID."
+      "meaning": "Width of the counter shared by default clients of the same loaded SDK, in the low bits of a generated client order ID."
     },
     "countdown_min_seconds": {
       "value": 1,

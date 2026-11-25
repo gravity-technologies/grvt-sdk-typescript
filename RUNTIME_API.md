@@ -148,10 +148,18 @@ Integers are `bigint`, addresses lowercase `0x` strings. Variant rule kinds the 
 How signers receive these messages: [Signing path](#signing-path).
 
 `ORDER_CHECKS: OrderChecks` is the contract's `order_checks` (`legs`, `instrument`, `scales` as a number
-or `"base_decimals"`, `rules`). `checkOrder` throws `OrderOutOfBounds` for the first leg outside its
-instrument's limits (read from `InstrumentMeta.limits`, which `loadInstrument` fills) and `SigningError`
-(`DecimalError` for a malformed or too precise decimal) for a value it cannot read; it never changes the order. Its `meta` only needs `instrument(name)` (returns the
-`InstrumentMeta`, throws `SigningError` when unknown), so callers outside generated code can pass their own.
+or `"base_decimals"`, `rules`). Both validators read the order and take a `meta` object with an
+`instrument(name)` method. `loadInstrument` fills the limits in `InstrumentMeta.limits`.
+
+`checkOrder` throws on the first problem. An instrument limit violation raises `OrderOutOfBounds`.
+A missing instrument or unreadable value raises `SigningError`, including `DecimalError` for a
+malformed or overly precise decimal. Lookup errors and malformed instrument limits propagate.
+
+For a form that shows several problems at once, iterate over `orderIssues(checks, order, meta)`.
+Each `OrderIssue` gives the zero-based leg index, field, and error. A malformed field skips rules that
+need its value. While a form is waiting for instrument data, call `orderIssues(checks, order)` to
+check only fixed-scale fields. With `meta` supplied, every leg must resolve to an instrument.
+`checkOrder` always requires metadata.
 
 Also exported for code that checks signatures outside a client (the docs widgets use them):
 

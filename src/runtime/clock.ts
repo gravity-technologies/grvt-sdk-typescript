@@ -67,8 +67,8 @@ export class RandomNonce implements NonceProvider {
 }
 
 /**
- * `1 << 63 | seconds << 31 | counter`: unique per process, sortable, and in the API client range [2^63, 2^64).
- * The counter starts at a random 31-bit value, so separate processes rarely collide.
+ * Generates IDs from the Unix second and a randomly seeded 31-bit counter.
+ * Clients using the same loaded SDK module share one instance by default.
  */
 export class TimeCounterClientOrderId implements ClientOrderIdProvider {
   private counter = BigInt(randomU32()) & behavior.CLIENT_ORDER_ID_COUNTER_MASK;

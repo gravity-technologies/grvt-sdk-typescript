@@ -91,3 +91,31 @@ it("invalidates on an early gap and filters other selectors after binding", () =
   expect(book.ready).toBe(false);
   expect(book.gap).toEqual(event.gap);
 });
+
+it("orders adjacent exact prices and merges equivalent decimal spellings", () => {
+  const ascending = [
+    "9.0100",
+    "9.0101",
+    "10",
+    "9007199254740993.000000000000000001",
+    "9007199254740993.000000000000000002",
+  ];
+  const descending = [...ascending].reverse();
+  const prices = ["9.01", ...descending];
+  const book = new OrderBook("X");
+  const levels = prices.map((price) => ({ price, size: "1", num_orders: 1 }));
+  const frame = decode(
+    {
+      stream: "book.d",
+      selector: "X",
+      sequence_number: "0",
+      prev_sequence_number: "0",
+      feed: { instrument: "X", event_time: "1", bids: levels, asks: levels },
+    },
+    "WSOrderbookLevelsFeedDataV1",
+  ) as WSOrderbookLevelsFeedDataV1;
+  book.apply(frame);
+  const snapshot = book.snapshot();
+  expect(snapshot.asks.map((level) => level.price.toString())).toEqual(ascending);
+  expect(snapshot.bids.map((level) => level.price.toString())).toEqual(descending);
+});
