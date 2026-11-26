@@ -989,7 +989,7 @@ export interface ApiSfpTradingScheduleResponse {
   commodity?: SfpMarketSchedule;
   /** Legacy: use `schedules` instead. Schedule for the `COMMODITY_CME` asset class */
   commodity_cme?: SfpMarketSchedule;
-  /** Trading hours as groups of stable perps sharing them: one per asset class, named after it, then one per instrument schedule, named in cluster config. Each... */
+  /** Trading hours as groups of stable perps sharing them: one per asset class, named after it, then one per instrument schedule, named in cluster config. A group... */
   schedules: SfpTradingScheduleGroup[] | null;
 }
 
@@ -1990,7 +1990,7 @@ export interface SfpMarketSchedule {
 export interface SfpTradingScheduleGroup {
   /** The group name. For stable perps on their asset class hours, the asset class (for example `COMMODITY_CME`) */
   name: string;
-  /** The instruments' asset class. Its holiday calendar sets the group's holidays */
+  /** The instruments' asset class. The group's holidays come from the stable perps' own holiday calendar when one lists them, else from the asset class's default... */
   asset_class: e.AssetClass;
   /** The stable perps trading these hours, sorted. Each stable perp with a schedule is in exactly one group */
   instruments: string[] | null;
